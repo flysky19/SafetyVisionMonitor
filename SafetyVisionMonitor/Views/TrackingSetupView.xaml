@@ -1,0 +1,267 @@
+﻿<UserControl x:Class="SafetyVisionMonitor.Views.TrackingSetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
+             mc:Ignorable="d" 
+             d:DesignHeight="800" d:DesignWidth="1200"
+             Loaded="OnLoaded">
+    
+    <Grid Background="#1A1A1A" Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- 헤더 -->
+        <Border Grid.Row="0" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="0,0,0,20">
+            <Grid>
+                <StackPanel>
+                    <TextBlock Text="트래킹 설정" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                    <TextBlock Text="사람 추적 알고리즘 및 파라미터를 설정합니다." 
+                             Foreground="Gray" Margin="0,5,0,0"/>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <syncfusion:ButtonAdv Label="기본값 복원" 
+                                        Command="{Binding ResetToDefaultsCommand}"
+                                        Margin="0,0,10,0"/>
+                    <syncfusion:ButtonAdv Label="설정 저장" 
+                                          Command="{Binding SaveSettingsCommand}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+        
+        <!-- 설정 영역 -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                
+                <!-- 기본 트래킹 설정 -->
+                <Border Grid.Row="0" Grid.Column="0" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="5">
+                    <StackPanel>
+                        <TextBlock Text="기본 트래킹 설정" FontSize="16" FontWeight="Bold" 
+                                 Foreground="White" Margin="0,0,0,15"/>
+                        
+                        <CheckBox Content="트래킹 활성화" 
+                                IsChecked="{Binding IsTrackingEnabled}"
+                                Foreground="White" Margin="0,0,0,10"/>
+                        
+                        <TextBlock Text="트래킹 방식" Foreground="Gray" Margin="0,10,0,5"/>
+                        <ComboBox ItemsSource="{Binding TrackingMethods}"
+                                SelectedItem="{Binding SelectedTrackingMethod}"
+                                Margin="0,0,0,10"/>
+                        
+                        <TextBlock Text="최대 추적 거리 (픽셀)" Foreground="Gray" Margin="0,10,0,5"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="60"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Value="{Binding MaxTrackingDistance}" 
+                                  Minimum="10" Maximum="200" TickFrequency="10"/>
+                            <TextBlock Grid.Column="1" Text="{Binding MaxTrackingDistance}" 
+                                     Foreground="White" HorizontalAlignment="Center"/>
+                        </Grid>
+                        
+                        <TextBlock Text="최대 사라짐 프레임" Foreground="Gray" Margin="0,10,0,5"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="60"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Value="{Binding MaxDisappearFrames}" 
+                                  Minimum="5" Maximum="100" TickFrequency="5"/>
+                            <TextBlock Grid.Column="1" Text="{Binding MaxDisappearFrames}" 
+                                     Foreground="White" HorizontalAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- 매칭 파라미터 -->
+                <Border Grid.Row="0" Grid.Column="1" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="5">
+                    <StackPanel>
+                        <TextBlock Text="매칭 파라미터" FontSize="16" FontWeight="Bold" 
+                                 Foreground="White" Margin="0,0,0,15"/>
+                        
+                        <TextBlock Text="IOU 임계값" Foreground="Gray" Margin="0,0,0,5"/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="60"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Value="{Binding IouThreshold}" 
+                                  Minimum="0" Maximum="1" TickFrequency="0.1"/>
+                            <TextBlock Grid.Column="1" Text="{Binding IouThreshold, StringFormat={}{0:F2}}" 
+                                     Foreground="White" HorizontalAlignment="Center"/>
+                        </Grid>
+                        
+                        <TextBlock Text="유사도 임계값" Foreground="Gray" Margin="0,0,0,5"/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="60"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Value="{Binding SimilarityThreshold}" 
+                                  Minimum="0" Maximum="1" TickFrequency="0.1"/>
+                            <TextBlock Grid.Column="1" Text="{Binding SimilarityThreshold, StringFormat={}{0:F2}}" 
+                                     Foreground="White" HorizontalAlignment="Center"/>
+                        </Grid>
+                        
+                        <CheckBox Content="재식별(Re-ID) 활성화" 
+                                IsChecked="{Binding EnableReIdentification}"
+                                Foreground="White" Margin="0,10,0,10"/>
+                        
+                        <CheckBox Content="다중 카메라 트래킹" 
+                                IsChecked="{Binding EnableMultiCameraTracking}"
+                                Foreground="White"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- 시각화 설정 -->
+                <Border Grid.Row="1" Grid.Column="0" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="5">
+                    <StackPanel>
+                        <TextBlock Text="시각화 설정" FontSize="16" FontWeight="Bold" 
+                                 Foreground="White" Margin="0,0,0,15"/>
+                        
+                        <CheckBox Content="트래킹 ID 표시" 
+                                IsChecked="{Binding ShowTrackingId}"
+                                Foreground="White" Margin="0,0,0,10"/>
+                        
+                        <CheckBox Content="이동 경로 표시" 
+                                IsChecked="{Binding ShowTrackingPath}"
+                                Foreground="White" Margin="0,0,0,10"/>
+                        
+                        <TextBlock Text="경로 표시 길이 (프레임)" Foreground="Gray" Margin="0,0,0,5"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="60"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Value="{Binding PathDisplayLength}" 
+                                  Minimum="5" Maximum="50" TickFrequency="5"
+                                  IsEnabled="{Binding ShowTrackingPath}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding PathDisplayLength}" 
+                                     Foreground="White" HorizontalAlignment="Center"/>
+                        </Grid>
+                        
+                        <TextBlock Text="트래킹 히스토리 길이" Foreground="Gray" Margin="0,10,0,5"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="60"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Value="{Binding TrackHistoryLength}" 
+                                  Minimum="10" Maximum="100" TickFrequency="10"/>
+                            <TextBlock Grid.Column="1" Text="{Binding TrackHistoryLength}" 
+                                     Foreground="White" HorizontalAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- 저장 설정 -->
+                <Border Grid.Row="1" Grid.Column="1" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="5">
+                    <StackPanel>
+                        <TextBlock Text="저장 설정" FontSize="16" FontWeight="Bold" 
+                                 Foreground="White" Margin="0,0,0,15"/>
+                        
+                        <CheckBox Content="트래킹 데이터 자동 저장" 
+                                IsChecked="{Binding AutoSaveTracking}"
+                                Foreground="White" Margin="0,0,0,10"/>
+                        
+                        <TextBlock Text="자동 저장 간격 (초)" Foreground="Gray" Margin="0,0,0,5"/>
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="60"/>
+                            </Grid.ColumnDefinitions>
+                            <Slider Grid.Column="0" Value="{Binding AutoSaveInterval}" 
+                                  Minimum="10" Maximum="300" TickFrequency="10"
+                                  IsEnabled="{Binding AutoSaveTracking}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding AutoSaveInterval}" 
+                                     Foreground="White" HorizontalAlignment="Center"/>
+                        </Grid>
+                        
+                        <syncfusion:ButtonAdv Label="트래킹 데이터 내보내기" 
+                                              Command="{Binding ExportTrackingDataCommand}"
+                                              HorizontalAlignment="Stretch"
+                                              Margin="0,10,0,0"/>
+                    </StackPanel>
+                </Border>
+                
+                <!-- 트래킹 구역 관리 -->
+                <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="5">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="200"/>
+                        </Grid.RowDefinitions>
+                        
+                        <Grid Grid.Row="0" Margin="0,0,0,10">
+                            <TextBlock Text="트래킹 구역 관리" FontSize="16" FontWeight="Bold" 
+                                     Foreground="White"/>
+                            <syncfusion:ButtonAdv Label="구역 추가" 
+                                                  Command="{Binding AddTrackingZoneCommand}"
+                                                  HorizontalAlignment="Right"/>
+                        </Grid>
+                        
+                        <DataGrid Grid.Row="1" 
+                                ItemsSource="{Binding TrackingZones}"
+                                AutoGenerateColumns="False"
+                                Background="#1A1A1A"
+                                BorderThickness="0"
+                                GridLinesVisibility="Horizontal"
+                                HeadersVisibility="Column">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="ID" Binding="{Binding Id}" Width="80"/>
+                                <DataGridTextColumn Header="구역명" Binding="{Binding Name}" Width="150"/>
+                                <DataGridCheckBoxColumn Header="진입" Binding="{Binding IsEntryZone}" Width="60"/>
+                                <DataGridCheckBoxColumn Header="진출" Binding="{Binding IsExitZone}" Width="60"/>
+                                <DataGridCheckBoxColumn Header="카운팅" Binding="{Binding CountingEnabled}" Width="80"/>
+                                <DataGridTemplateColumn Header="작업" Width="100">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="삭제" 
+                                                    Tag="{Binding}"
+                                                    Click="DeleteZoneButton_Click"
+                                                    Background="#E74C3C"
+                                                    Padding="5,2"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </Border>
+                
+                <!-- 테스트 -->
+                <Border Grid.Row="3" Grid.ColumnSpan="2" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="5">
+                    <StackPanel HorizontalAlignment="Center">
+                        <syncfusion:ButtonAdv Label="트래킹 테스트" 
+                                            Command="{Binding TestTrackingCommand}"
+                                            Width="200" Height="40"
+                                            />
+                        <TextBlock Text="현재 설정으로 트래킹을 테스트합니다." 
+                                 Foreground="Gray" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </ScrollViewer>
+        
+        <!-- 하단 상태바 -->
+        <Border Grid.Row="2" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,10,0,0">
+            <TextBlock Text="{Binding StatusMessage}" Foreground="White"/>
+        </Border>
+    </Grid>
+</UserControl>

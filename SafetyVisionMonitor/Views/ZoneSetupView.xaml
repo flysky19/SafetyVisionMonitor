@@ -1,0 +1,228 @@
+﻿<UserControl x:Class="SafetyVisionMonitor.Views.ZoneSetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
+             mc:Ignorable="d" 
+             d:DesignHeight="800" d:DesignWidth="1200"
+             Loaded="OnLoaded">
+    
+    <Grid Background="#1A1A1A" Margin="20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="600"/>
+            <ColumnDefinition Width="350"/>
+        </Grid.ColumnDefinitions>
+        
+        <!-- 왼쪽: 카메라 영상 및 구역 그리기 -->
+        <Grid Grid.Column="0" Margin="0,0,10,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- 카메라 선택 및 도구 -->
+            <Border Grid.Row="0" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,0,0,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <TextBlock Text="카메라:" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <ComboBox ItemsSource="{Binding AvailableCameras}"
+                                SelectedItem="{Binding SelectedCamera}"
+                                DisplayMemberPath="Name"
+                                Width="150"/>
+                    </StackPanel>
+                    
+                    <CheckBox Grid.Column="1" Content="구역 오버레이 표시" 
+                            IsChecked="{Binding ShowZoneOverlay}"
+                            Foreground="White" 
+                            VerticalAlignment="Center"
+                            HorizontalAlignment="Center"/>
+                    
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <syncfusion:ButtonAdv Label="{Binding DrawingModeText}"
+                                            Command="{Binding StartDrawingCommand}"
+                                            Margin="0,0,5,0">
+                            <syncfusion:ButtonAdv.Style>
+                                <Style TargetType="syncfusion:ButtonAdv">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsDrawingMode}" Value="True">
+                                            <Setter Property="Background" Value="#E74C3C"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </syncfusion:ButtonAdv.Style>
+                        </syncfusion:ButtonAdv>
+                        
+                        <syncfusion:ButtonAdv Label="모두 지우기"
+                                              Command="{Binding ClearAllZonesCommand}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+            <!-- 카메라 영상 영역 -->
+            <Border Grid.Row="1" Background="Black" BorderBrush="#444" BorderThickness="1">
+                <Grid>
+                    <Image x:Name="CameraImage" 
+                         Source="{Binding CurrentCameraFrame}"
+                         Stretch="Uniform"/>
+                    
+                    <!-- 구역 오버레이 캔버스 -->
+                    <Canvas x:Name="ZoneCanvas" 
+                          Background="Transparent"
+                          MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
+                          Visibility="{Binding ShowZoneOverlay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        
+                        <!-- 임시 그리기 점들 -->
+                        <ItemsControl ItemsSource="{Binding TempDrawingPoints}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Ellipse Width="10" Height="10" Fill="Yellow" Stroke="Black" StrokeThickness="2">
+                                        <Ellipse.RenderTransform>
+                                            <TranslateTransform X="{Binding X}" Y="{Binding Y}"/>
+                                        </Ellipse.RenderTransform>
+                                    </Ellipse>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Canvas>
+                    
+                    <!-- 미연결 상태 표시 -->
+                    <StackPanel VerticalAlignment="Center" 
+                              HorizontalAlignment="Center"
+                              Visibility="{Binding SelectedCamera.IsConnected, 
+                                         Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                        <TextBlock Text="📷" FontSize="48" HorizontalAlignment="Center" Foreground="Gray"/>
+                        <TextBlock Text="카메라가 연결되지 않았습니다" 
+                                 Foreground="Gray" 
+                                 Margin="0,10,0,0"
+                                 HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+            <!-- 그리기 도구 패널 -->
+            <Border Grid.Row="2" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,10,0,0"
+                    Visibility="{Binding IsDrawingMode, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <TextBlock Text="구역 타입:" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <RadioButton Content="경고" IsChecked="{Binding Path=NewZoneType, 
+                                   Converter={StaticResource EnumBooleanConverter}, 
+                                   ConverterParameter=Warning}"
+                                   Foreground="Orange" Margin="0,0,10,0"/>
+                        <RadioButton Content="위험" IsChecked="{Binding Path=NewZoneType, 
+                                   Converter={StaticResource EnumBooleanConverter}, 
+                                   ConverterParameter=Danger}"
+                                   Foreground="Red"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
+                        <TextBlock Text="높이(m):" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <syncfusion:DoubleTextBox Value="{Binding NewZoneHeight}"
+                                                   MinValue="0.5" MaxValue="10.0"
+                                                   Width="80"/>
+                    </StackPanel>
+                    
+                    <syncfusion:ButtonAdv Grid.Column="2" 
+                                        Label="구역 추가"
+                                        Command="{Binding AddZoneCommand}"
+                                        IsEnabled="{Binding TempDrawingPoints.Count, 
+                                                  Converter={StaticResource CountToBoolConverter}, 
+                                                  ConverterParameter=4}"/>
+                </Grid>
+            </Border>
+        </Grid>
+        
+        <!-- 오른쪽: 구역 리스트 및 설정 -->
+        <Grid Grid.Column="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- 헤더 -->
+            <Border Grid.Row="0" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,0,0,10">
+                <TextBlock Text="구역 목록" FontSize="16" FontWeight="Bold" Foreground="White"/>
+            </Border>
+            
+            <!-- 구역 리스트 -->
+            <ListBox Grid.Row="1" 
+                   ItemsSource="{Binding Zones}"
+                   SelectedItem="{Binding SelectedZone}"
+                   Background="#2D2D30"
+                   BorderThickness="0">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="#1A1A1A" CornerRadius="5" Margin="5" Padding="10">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                
+                                <Grid Grid.Row="0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Rectangle Width="20" Height="20" 
+                                                 Fill="{Binding DisplayColor, Converter={StaticResource ColorToBrushConverter}}"
+                                                 Margin="0,0,10,0"/>
+                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="White"/>
+                                    </StackPanel>
+                                    
+                                    <CheckBox Grid.Column="1" 
+                                            IsChecked="{Binding IsEnabled}"
+                                            HorizontalAlignment="Right"
+                                            Command="{Binding DataContext.ToggleZoneCommand,
+                                                     RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"/>
+                                </Grid>
+                                
+                                <TextBlock Grid.Row="1" Foreground="Gray" FontSize="11" Margin="0,5">
+                                    <Run Text="카메라: "/><Run Text="{Binding CameraId}"/>
+                                    <Run Text=" | 높이: "/><Run Text="{Binding Height}"/><Run Text="m"/>
+                                </TextBlock>
+                                
+                                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="편집" Margin="2" Padding="5,2"/>
+                                    <Button Content="삭제" 
+                                          Command="{Binding DataContext.DeleteZoneCommand,
+                                                   RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          CommandParameter="{Binding}"
+                                          Background="#E74C3C"
+                                          Margin="2" Padding="5,2"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            
+            <!-- 저장 버튼 -->
+            <syncfusion:ButtonAdv Grid.Row="2" 
+                                Label="설정 저장"
+                                Command="{Binding SaveZonesCommand}"
+                                HorizontalAlignment="Stretch"
+                                Margin="5,10,5,0"
+                                Height="35"/>
+        </Grid>
+    </Grid>
+</UserControl>
