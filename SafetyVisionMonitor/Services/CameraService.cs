@@ -127,7 +127,6 @@ namespace SafetyVisionMonitor.Services
                 // 카메라가 지원하는 해상도로 설정
                 if (Camera.Type == CameraType.USB)
                 {
-                    
                     // 2560x1440을 먼저 시도
                     _capture.Set(VideoCaptureProperties.FrameWidth, Camera.Width);
                     _capture.Set(VideoCaptureProperties.FrameHeight, (Camera.Height));
