@@ -28,6 +28,36 @@ namespace SafetyVisionMonitor.Models
         [ObservableProperty]
         private double fps = 25.0;
         
+        [ObservableProperty]
+        private double brightness = 128.0;
+        
+        [ObservableProperty]
+        private double contrast = 32.0;
+        
+        [ObservableProperty]
+        private double saturation = 64.0;
+        
+        [ObservableProperty]
+        private double exposure = -1.0;
+        
+        [ObservableProperty]
+        private double gain = 0.0;
+        
+        [ObservableProperty]
+        private double hue = 0.0;
+        
+        [ObservableProperty]
+        private double gamma = 1.0;
+        
+        [ObservableProperty]
+        private double sharpness = 0.0;
+        
+        [ObservableProperty]
+        private bool autoExposure = true;
+        
+        [ObservableProperty]
+        private bool autoWhiteBalance = true;
+        
         public string Resolution => $"{Width}×{Height}";
         public string Status => IsConnected ? "연결됨" : "연결 안됨";
     }

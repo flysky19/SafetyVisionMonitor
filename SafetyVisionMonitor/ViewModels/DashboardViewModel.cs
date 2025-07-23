@@ -108,8 +108,8 @@ namespace SafetyVisionMonitor.ViewModels
         {
             base.OnLoaded();
             
-            // 서비스 이벤트 구독
-            App.CameraService.FrameReceived += OnFrameReceived;
+            // 서비스 이벤트 구독 (UI용 저화질 프레임 사용)
+            App.CameraService.FrameReceivedForUI += OnFrameReceived;
             App.CameraService.ConnectionChanged += OnConnectionChanged;
             App.MonitoringService.PerformanceUpdated += OnPerformanceUpdated;
         }
@@ -123,10 +123,19 @@ namespace SafetyVisionMonitor.ViewModels
         public override void OnDeactivated()
         {
             base.OnDeactivated();
-            // 이벤트 구독 해제
-            App.CameraService.FrameReceived -= OnFrameReceived;
+            _updateTimer?.Stop();
+        }
+        
+        public override void Cleanup()
+        {
+            base.Cleanup();
+            
+            // 이벤트 구독 해제는 ViewModel이 완전히 소멸될 때만
+            App.CameraService.FrameReceivedForUI -= OnFrameReceived;
             App.CameraService.ConnectionChanged -= OnConnectionChanged;
             App.MonitoringService.PerformanceUpdated -= OnPerformanceUpdated;
+            
+            _updateTimer?.Stop();
         }
         
         [RelayCommand]
@@ -160,39 +169,53 @@ namespace SafetyVisionMonitor.ViewModels
                 if (e?.Frame == null || e.Frame.Empty())
                 {
                     System.Diagnostics.Debug.WriteLine($"Empty frame received for {e?.CameraId}");
+                    e?.Frame?.Dispose(); // 빈 프레임도 해제
                     return;
                 }
         
-                // 여러 변환 방법 시도
-                BitmapSource? bitmap = null;
-        
-                bitmap = ImageConverter.MatToBitmapSource(e.Frame);
-        
-                if (bitmap == null)
-                {
-                    System.Diagnostics.Debug.WriteLine($"All conversion methods failed for {e.CameraId}");
-                    return;
-                }
-        
-                // UI 스레드에서 업데이트
+                // UI 스레드에서 변환과 업데이트를 모두 처리
                 App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
                 {
-                    var cameraVm = Cameras.FirstOrDefault(c => c.CameraId == e.CameraId);
-                    if (cameraVm != null)
+                    try
                     {
-                        cameraVm.CurrentFrame = bitmap;
-                        cameraVm.DetectionCount++;
-                
-                        System.Diagnostics.Debug.WriteLine(
-                            $"Frame displayed for {e.CameraId}: " +
-                            $"{bitmap.PixelWidth}x{bitmap.PixelHeight}, " +
-                            $"Format: {bitmap.Format}");
+                        using (var frame = e.Frame)
+                        {
+                            if (frame != null && !frame.Empty())
+                            {
+                                // UI 스레드에서 BitmapSource 변환 (크로스 스레드 오류 방지)
+                                var bitmap = ImageConverter.MatToBitmapSource(frame);
+        
+                                if (bitmap != null)
+                                {
+                                    var cameraVm = Cameras.FirstOrDefault(c => c.CameraId == e.CameraId);
+                                    if (cameraVm != null)
+                                    {
+                                        // 이전 프레임 정리 (GC 부담 감소)
+                                        var oldFrame = cameraVm.CurrentFrame;
+                                        cameraVm.CurrentFrame = bitmap;
+                                        cameraVm.DetectionCount++;
+                                
+                                        System.Diagnostics.Debug.WriteLine(
+                                            $"Frame updated for {e.CameraId}: {bitmap.PixelWidth}x{bitmap.PixelHeight}");
+                                    }
+                                }
+                                else
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"Conversion failed for {e.CameraId}");
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception uiEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Frame processing error: {uiEx.Message}");
                     }
                 }));
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"OnFrameReceived error: {ex.Message}");
+                e?.Frame?.Dispose(); // 예외 발생 시에도 해제
             }
         }
         
@@ -362,12 +385,6 @@ namespace SafetyVisionMonitor.ViewModels
                     ModelConfidence = activeModel.DefaultConfidence;
                 }
             });
-        }
-        
-        public override void Cleanup()
-        {
-            base.Cleanup();
-            _updateTimer?.Stop();
         }
         
         private void UpdateStatus(object? sender, EventArgs e)

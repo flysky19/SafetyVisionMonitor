@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -40,7 +41,17 @@ namespace SafetyVisionMonitor.ViewModels
                 Width = camera.Width,
                 Height = camera.Height,
                 Fps = camera.Fps,
-                IsConnected = camera.IsConnected
+                IsConnected = camera.IsConnected,
+                Brightness = camera.Brightness,
+                Contrast = camera.Contrast,
+                Saturation = camera.Saturation,
+                Exposure = camera.Exposure,
+                Gain = camera.Gain,
+                Hue = camera.Hue,
+                Gamma = camera.Gamma,
+                Sharpness = camera.Sharpness,
+                AutoExposure = camera.AutoExposure,
+                AutoWhiteBalance = camera.AutoWhiteBalance
             };
             
             UpdateConnectionHint();
@@ -175,6 +186,16 @@ namespace SafetyVisionMonitor.ViewModels
                     Camera.Width = savedCamera.Width;
                     Camera.Height = savedCamera.Height;
                     Camera.Fps = savedCamera.Fps;
+                    Camera.Brightness = savedCamera.Brightness;
+                    Camera.Contrast = savedCamera.Contrast;
+                    Camera.Saturation = savedCamera.Saturation;
+                    Camera.Exposure = savedCamera.Exposure;
+                    Camera.Gain = savedCamera.Gain;
+                    Camera.Hue = savedCamera.Hue;
+                    Camera.Gamma = savedCamera.Gamma;
+                    Camera.Sharpness = savedCamera.Sharpness;
+                    Camera.AutoExposure = savedCamera.AutoExposure;
+                    Camera.AutoWhiteBalance = savedCamera.AutoWhiteBalance;
                     
                     UpdateConnectionHint();
                     
@@ -194,6 +215,48 @@ namespace SafetyVisionMonitor.ViewModels
             }
         }
         
+        [RelayCommand]
+        private void ResetImageSettings()
+        {
+            Camera.Brightness = 128.0;
+            Camera.Contrast = 32.0;
+            Camera.Saturation = 64.0;
+            Camera.Exposure = -1.0;
+            Camera.Gain = 0.0;
+            Camera.Hue = 0.0;
+            Camera.Gamma = 1.0;
+            Camera.Sharpness = 0.0;
+            Camera.AutoExposure = true;
+            Camera.AutoWhiteBalance = true;
+            
+            TestResult = "✓ 이미지 설정이 기본값으로 재설정되었습니다.";
+            TestResultColor = Brushes.LightGreen;
+        }
+        
+        [RelayCommand]
+        private async Task ApplyImageSettings()
+        {
+            try
+            {
+                if (Camera.IsConnected)
+                {
+                    App.CameraService.UpdateCameraSettings(Camera.Id, Camera);
+                    TestResult = "✓ 이미지 설정이 적용되었습니다.";
+                    TestResultColor = Brushes.LightGreen;
+                }
+                else
+                {
+                    TestResult = "카메라가 연결되지 않았습니다.";
+                    TestResultColor = Brushes.Orange;
+                }
+            }
+            catch (Exception ex)
+            {
+                TestResult = $"설정 적용 실패: {ex.Message}";
+                TestResultColor = Brushes.Red;
+            }
+        }
+        
         public void ApplyTo(Camera target)
         {
             target.Name = Camera.Name;
@@ -202,6 +265,16 @@ namespace SafetyVisionMonitor.ViewModels
             target.Width = Camera.Width;
             target.Height = Camera.Height;
             target.Fps = Camera.Fps;
+            target.Brightness = Camera.Brightness;
+            target.Contrast = Camera.Contrast;
+            target.Saturation = Camera.Saturation;
+            target.Exposure = Camera.Exposure;
+            target.Gain = Camera.Gain;
+            target.Hue = Camera.Hue;
+            target.Gamma = Camera.Gamma;
+            target.Sharpness = Camera.Sharpness;
+            target.AutoExposure = Camera.AutoExposure;
+            target.AutoWhiteBalance = Camera.AutoWhiteBalance;
         }
     }
 }

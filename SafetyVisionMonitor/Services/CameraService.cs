@@ -16,6 +16,8 @@ namespace SafetyVisionMonitor.Services
         private readonly ConcurrentDictionary<string, CameraConnection> _connections = new();
         private readonly int _maxCameras;
         public event EventHandler<CameraFrameEventArgs>? FrameReceived;
+        public event EventHandler<CameraFrameEventArgs>? FrameReceivedForAI; // AI용 원본 프레임
+        public event EventHandler<CameraFrameEventArgs>? FrameReceivedForUI; // UI용 저화질 프레임
         public event EventHandler<CameraConnectionEventArgs>? ConnectionChanged;
         
         public CameraService()
@@ -67,21 +69,148 @@ namespace SafetyVisionMonitor.Services
                 .ToList();
         }
         
+        public void UpdateCameraSettings(string cameraId, Camera settings)
+        {
+            if (_connections.TryGetValue(cameraId, out var connection))
+            {
+                connection.UpdateSettings(settings);
+            }
+        }
+        
+        public Camera? GetCameraSettings(string cameraId)
+        {
+            if (_connections.TryGetValue(cameraId, out var connection))
+            {
+                return connection.GetCurrentSettings();
+            }
+            return null;
+        }
+        
         private void OnFrameReceived(object? sender, CameraFrameEventArgs e)
         {
-            //FrameReceived?.Invoke(this, e);
-            // 디버깅 로그 추가
             System.Diagnostics.Debug.WriteLine($"CameraService: Frame received from {e.CameraId}");
     
-            // 프레임 복사본 생성 (중요!)
-            using (var originalFrame = e.Frame)
+            if (e.Frame != null && !e.Frame.Empty())
             {
-                if (originalFrame != null && !originalFrame.Empty())
+                // 하이브리드 프레임 배포 시스템
+                ProcessHybridFrameDistribution(e);
+                
+                // 기존 호환성을 위한 레거시 이벤트 (Deprecated 예정)
+                var legacyHandlers = FrameReceived?.GetInvocationList();
+                if (legacyHandlers != null)
                 {
-                    var frameCopy = originalFrame.Clone();
-                    FrameReceived?.Invoke(this, new CameraFrameEventArgs(e.CameraId, frameCopy));
+                    foreach (var handler in legacyHandlers)
+                    {
+                        var frameClone = e.Frame.Clone();
+                        try
+                        {
+                            ((EventHandler<CameraFrameEventArgs>)handler).Invoke(this, 
+                                new CameraFrameEventArgs(e.CameraId, frameClone));
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Legacy frame handler error: {ex.Message}");
+                            frameClone.Dispose();
+                        }
+                    }
+                }
+                
+                // 원본 프레임 해제
+                e.Frame.Dispose();
+            }
+        }
+        
+        private void ProcessHybridFrameDistribution(CameraFrameEventArgs originalFrame)
+        {
+            try
+            {
+                // 1. AI용 원본 프레임 배포 (고화질, 원본 FPS)
+                DistributeAIFrame(originalFrame);
+                
+                // 2. UI용 저화질 프레임 배포 (저화질, 제한된 FPS)
+                DistributeUIFrame(originalFrame);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Hybrid frame distribution error: {ex.Message}");
+            }
+        }
+        
+        private void DistributeAIFrame(CameraFrameEventArgs originalFrame)
+        {
+            var aiHandlers = FrameReceivedForAI?.GetInvocationList();
+            if (aiHandlers != null)
+            {
+                foreach (var handler in aiHandlers)
+                {
+                    // AI용은 원본 해상도 유지
+                    var aiFrame = originalFrame.Frame.Clone();
+                    try
+                    {
+                        ((EventHandler<CameraFrameEventArgs>)handler).Invoke(this, 
+                            new CameraFrameEventArgs(originalFrame.CameraId, aiFrame));
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"AI frame handler error: {ex.Message}");
+                        aiFrame.Dispose();
+                    }
                 }
             }
+        }
+        
+        private void DistributeUIFrame(CameraFrameEventArgs originalFrame)
+        {
+            var uiHandlers = FrameReceivedForUI?.GetInvocationList();
+            if (uiHandlers != null)
+            {
+                // UI용 프레임 스키핑 (3프레임마다 1번)
+                if (!ShouldUpdateUI(originalFrame.CameraId))
+                    return;
+                
+                foreach (var handler in uiHandlers)
+                {
+                    // UI용은 해상도 축소 (1/4 크기)
+                    var uiFrame = CreateLowResolutionFrame(originalFrame.Frame);
+                    try
+                    {
+                        ((EventHandler<CameraFrameEventArgs>)handler).Invoke(this, 
+                            new CameraFrameEventArgs(originalFrame.CameraId, uiFrame));
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"UI frame handler error: {ex.Message}");
+                        uiFrame.Dispose();
+                    }
+                }
+            }
+        }
+        
+        private readonly Dictionary<string, int> _uiFrameCounters = new();
+        private bool ShouldUpdateUI(string cameraId)
+        {
+            if (!_uiFrameCounters.ContainsKey(cameraId))
+                _uiFrameCounters[cameraId] = 0;
+            
+            _uiFrameCounters[cameraId]++;
+            
+            // 3프레임마다 1번 UI 업데이트 (FPS 1/3로 감소)
+            return _uiFrameCounters[cameraId] % 3 == 0;
+        }
+        
+        private Mat CreateLowResolutionFrame(Mat originalFrame)
+        {
+            // 해상도 1/2로 축소 (면적은 1/4로 감소)
+            var targetWidth = originalFrame.Width / 2;
+            var targetHeight = originalFrame.Height / 2;
+            
+            var resizedFrame = new Mat();
+            Cv2.Resize(originalFrame, resizedFrame, new OpenCvSharp.Size(targetWidth, targetHeight), 
+                      interpolation: InterpolationFlags.Linear);
+            
+            System.Diagnostics.Debug.WriteLine($"CameraService: UI frame resized: {originalFrame.Width}x{originalFrame.Height} → {targetWidth}x{targetHeight}");
+            
+            return resizedFrame;
         }
         
         public void Dispose()
@@ -143,16 +272,6 @@ namespace SafetyVisionMonitor.Services
                         actualWidth = _capture.Get(VideoCaptureProperties.FrameWidth);
                         actualHeight = _capture.Get(VideoCaptureProperties.FrameHeight);
                     }
-                    
-                    // 그래도 안되면 1280x720 시도
-                    // if (actualWidth != 1920 || actualHeight != 1080)
-                    // {
-                    //     _capture.Set(VideoCaptureProperties.FrameWidth, 2560);
-                    //     _capture.Set(VideoCaptureProperties.FrameHeight, 1440);
-                    //     
-                    //     actualWidth = _capture.Get(VideoCaptureProperties.FrameWidth);
-                    //     actualHeight = _capture.Get(VideoCaptureProperties.FrameHeight);
-                    // }
                     
                     // 최종 설정된 해상도로 Camera 객체 업데이트
                     Camera.Width = (int)actualWidth;
@@ -379,7 +498,7 @@ namespace SafetyVisionMonitor.Services
                 System.Diagnostics.Debug.WriteLine("Warming up camera...");
         
                 // 카메라 워밍업 (일부 카메라는 초기화 시간이 필요)
-                for (int warmup = 0; warmup < 10; warmup++)
+                for (int warmup = 0; warmup < 3; warmup++)
                 {
                     using (var dummy = new Mat())
                     {
@@ -398,7 +517,7 @@ namespace SafetyVisionMonitor.Services
                 // 실제 검증
                 using (var testFrame = new Mat())
                 {
-                    for (int i = 0; i < 5; i++)
+                    for (int i = 0; i < 3; i++)
                     {
                         _capture.Read(testFrame);
                         Thread.Sleep(200);
@@ -469,6 +588,126 @@ namespace SafetyVisionMonitor.Services
             System.Diagnostics.Debug.WriteLine($"Backend: {_capture.GetBackendName()}");
         }
         
+        public void UpdateSettings(Camera settings)
+        {
+            lock (_captureLock)
+            {
+                if (_capture == null || !_capture.IsOpened()) return;
+                
+                try
+                {
+                    // 밝기
+                    if (Math.Abs(Camera.Brightness - settings.Brightness) > 0.1)
+                    {
+                        _capture.Set(VideoCaptureProperties.Brightness, settings.Brightness);
+                        Camera.Brightness = settings.Brightness;
+                    }
+                    
+                    // 대비
+                    if (Math.Abs(Camera.Contrast - settings.Contrast) > 0.1)
+                    {
+                        _capture.Set(VideoCaptureProperties.Contrast, settings.Contrast);
+                        Camera.Contrast = settings.Contrast;
+                    }
+                    
+                    // 채도
+                    if (Math.Abs(Camera.Saturation - settings.Saturation) > 0.1)
+                    {
+                        _capture.Set(VideoCaptureProperties.Saturation, settings.Saturation);
+                        Camera.Saturation = settings.Saturation;
+                    }
+                    
+                    // 노출
+                    if (Math.Abs(Camera.Exposure - settings.Exposure) > 0.1)
+                    {
+                        _capture.Set(VideoCaptureProperties.Exposure, settings.Exposure);
+                        Camera.Exposure = settings.Exposure;
+                    }
+                    
+                    // 게인
+                    if (Math.Abs(Camera.Gain - settings.Gain) > 0.1)
+                    {
+                        _capture.Set(VideoCaptureProperties.Gain, settings.Gain);
+                        Camera.Gain = settings.Gain;
+                    }
+                    
+                    // 색조
+                    if (Math.Abs(Camera.Hue - settings.Hue) > 0.1)
+                    {
+                        _capture.Set(VideoCaptureProperties.Hue, settings.Hue);
+                        Camera.Hue = settings.Hue;
+                    }
+                    
+                    // 감마
+                    if (Math.Abs(Camera.Gamma - settings.Gamma) > 0.1)
+                    {
+                        _capture.Set(VideoCaptureProperties.Gamma, settings.Gamma);
+                        Camera.Gamma = settings.Gamma;
+                    }
+                    
+                    // 선명도
+                    if (Math.Abs(Camera.Sharpness - settings.Sharpness) > 0.1)
+                    {
+                        _capture.Set(VideoCaptureProperties.Sharpness, settings.Sharpness);
+                        Camera.Sharpness = settings.Sharpness;
+                    }
+                    
+                    // 자동 노출
+                    if (Camera.AutoExposure != settings.AutoExposure)
+                    {
+                        _capture.Set(VideoCaptureProperties.AutoExposure, settings.AutoExposure ? 0.75 : 0.25);
+                        Camera.AutoExposure = settings.AutoExposure;
+                    }
+                    
+                    // 자동 화이트 밸런스
+                    if (Camera.AutoWhiteBalance != settings.AutoWhiteBalance)
+                    {
+                        _capture.Set(VideoCaptureProperties.AutoWB, settings.AutoWhiteBalance ? 1 : 0);
+                        Camera.AutoWhiteBalance = settings.AutoWhiteBalance;
+                    }
+                    
+                    System.Diagnostics.Debug.WriteLine($"Camera {Camera.Id} settings updated");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to update camera settings: {ex.Message}");
+                }
+            }
+        }
+        
+        public Camera GetCurrentSettings()
+        {
+            lock (_captureLock)
+            {
+                if (_capture == null || !_capture.IsOpened()) return Camera;
+                
+                try
+                {
+                    // 현재 카메라 설정값 읽기
+                    Camera.Brightness = _capture.Get(VideoCaptureProperties.Brightness);
+                    Camera.Contrast = _capture.Get(VideoCaptureProperties.Contrast);
+                    Camera.Saturation = _capture.Get(VideoCaptureProperties.Saturation);
+                    Camera.Exposure = _capture.Get(VideoCaptureProperties.Exposure);
+                    Camera.Gain = _capture.Get(VideoCaptureProperties.Gain);
+                    Camera.Hue = _capture.Get(VideoCaptureProperties.Hue);
+                    Camera.Gamma = _capture.Get(VideoCaptureProperties.Gamma);
+                    Camera.Sharpness = _capture.Get(VideoCaptureProperties.Sharpness);
+                    
+                    var autoExp = _capture.Get(VideoCaptureProperties.AutoExposure);
+                    Camera.AutoExposure = autoExp > 0.5;
+                    
+                    var autoWb = _capture.Get(VideoCaptureProperties.AutoWB);
+                    Camera.AutoWhiteBalance = autoWb > 0.5;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to get camera settings: {ex.Message}");
+                }
+                
+                return Camera;
+            }
+        }
+        
         private void CaptureLoop()
         {
             var frame = new Mat();
@@ -500,7 +739,7 @@ namespace SafetyVisionMonitor.Services
                             continue;
                         }
                 
-                        // 이벤트 발생
+                        // 프레임을 CameraService로 전달 (CameraService에서 구독자별 복사 관리)
                         FrameReceived?.Invoke(this, new CameraFrameEventArgs(Camera.Id, frame.Clone()));
                         frameCount++;
                 

@@ -5,7 +5,7 @@ namespace SafetyVisionMonitor.Views;
 
 public partial class EventLogView : UserControl
 {
-    private bool _isFirstLoad = false;
+    private bool _isFirstLoad = true;
     
     public EventLogView()
     {
