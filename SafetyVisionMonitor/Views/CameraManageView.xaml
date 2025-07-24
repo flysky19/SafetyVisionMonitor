@@ -61,9 +61,15 @@
                           Background="#E74C3C" Foreground="White"
                           BorderThickness="0"/>
                     
-                    <TextBlock Text="연결된 카메라: " Foreground="Gray" VerticalAlignment="Center"/>
-                    <TextBlock Text="{Binding CameraItems.Count, Mode=OneWay}" Foreground="White" 
-                             FontWeight="Bold" VerticalAlignment="Center" Margin="5,0"/>
+                    <TextBlock Text="활성 카메라: " Foreground="Gray" VerticalAlignment="Center"/>
+                    <TextBlock Foreground="White" FontWeight="Bold" VerticalAlignment="Center" Margin="5,0">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0}/{1}">
+                                <Binding Path="ActiveCameraCount" Mode="OneWay"/>
+                                <Binding Path="CameraItems.Count" Mode="OneWay"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
                 </StackPanel>
             </Grid>
         </Border>
@@ -81,6 +87,16 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Margin="5" BorderBrush="#444" BorderThickness="1" CornerRadius="5">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Camera.IsEnabled, Mode=OneWay}" Value="False">
+                                            <Setter Property="Background" Value="#2C2C2C"/>
+                                            <Setter Property="Opacity" Value="0.6"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -101,12 +117,36 @@
                                         </StackPanel>
                                         
                                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <ToggleButton Content="{Binding Camera.IsEnabled, Mode=OneWay, Converter={StaticResource BoolToEnabledTextConverter}}"
+                                                        IsChecked="{Binding Camera.IsEnabled, Mode=TwoWay}"
+                                                        Command="{Binding DataContext.ToggleCameraEnabledCommand, 
+                                                                 RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding Index}"
+                                                        Margin="0,0,5,0"
+                                                        Padding="5,2" FontSize="10">
+                                                <ToggleButton.Style>
+                                                    <Style TargetType="ToggleButton">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Camera.IsEnabled, Mode=OneWay}" Value="True">
+                                                                <Setter Property="Background" Value="#27AE60"/>
+                                                                <Setter Property="Foreground" Value="White"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Camera.IsEnabled, Mode=OneWay}" Value="False">
+                                                                <Setter Property="Background" Value="#7F8C8D"/>
+                                                                <Setter Property="Foreground" Value="White"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </ToggleButton.Style>
+                                            </ToggleButton>
+                                            
                                             <syncfusion:ButtonAdv Content="설정" 
                                                                 Command="{Binding DataContext.ConfigureCameraCommand, 
                                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                 CommandParameter="{Binding Index}"
                                                                 Margin="0,0,5,0"
-                                                                SizeMode="Small"/>
+                                                                SizeMode="Small"
+                                                                IsEnabled="{Binding Camera.IsEnabled, Mode=OneWay}"/>
                                             
                                             <syncfusion:ButtonAdv 
                                                 Content="{Binding Camera.IsConnected, Mode=OneWay,
@@ -114,7 +154,8 @@
                                                 Command="{Binding DataContext.ToggleConnectionCommand, 
                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                 CommandParameter="{Binding Index}"
-                                                SizeMode="Small">
+                                                SizeMode="Small"
+                                                IsEnabled="{Binding Camera.IsEnabled, Mode=OneWay}">
                                                 <syncfusion:ButtonAdv.Style>
                                                     <Style TargetType="syncfusion:ButtonAdv">
                                                         <Style.Triggers>
@@ -134,12 +175,14 @@
                                 
                                 <!-- 비디오 피드 -->
                                 <Grid Grid.Row="1" Background="Black">
-                                    <!-- 연결된 경우 비디오 표시 -->
+                                    <!-- 사용 중인 카메라만 비디오 표시 -->
                                     <Image Name="CameraImage"
                                          Source="{Binding CurrentFrame, Mode=OneWay}"
-                                         Stretch="Uniform"/>
+                                         Stretch="Uniform"
+                                         Visibility="{Binding Camera.IsEnabled, Mode=OneWay,
+                                                    Converter={StaticResource BooleanToVisibilityConverter}}"/>
                                     
-                                    <!-- 상태 표시 (간소화) -->
+                                    <!-- 상태 표시 (사용 중인 카메라만) -->
                                     <TextBlock Text="{Binding StatusText}" 
                                              Foreground="Yellow" 
                                              Background="Black"
@@ -147,14 +190,44 @@
                                              VerticalAlignment="Top"
                                              Margin="5"
                                              FontSize="12"
-                                             Visibility="{Binding Camera.IsConnected, Mode=OneWay,
+                                             Visibility="{Binding Camera.IsEnabled, Mode=OneWay,
                                                         Converter={StaticResource BooleanToVisibilityConverter}}"/>
                                     
-                                    <!-- 미연결 상태 표시 -->
+                                    <!-- 미사용 카메라 표시 -->
                                     <StackPanel VerticalAlignment="Center" 
                                               HorizontalAlignment="Center"
-                                              Visibility="{Binding Camera.IsConnected, Mode=OneWay,
+                                              Visibility="{Binding Camera.IsEnabled, Mode=OneWay,
                                                          Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                                        <TextBlock Text="🚫" FontSize="48" HorizontalAlignment="Center"/>
+                                        <TextBlock Text="미사용 카메라" 
+                                                 Foreground="Gray" 
+                                                 Margin="0,10,0,0"
+                                                 HorizontalAlignment="Center"
+                                                 FontWeight="Bold"/>
+                                        <TextBlock Text="AI 처리 및 트래킹에서 제외됨" 
+                                                 Foreground="#888" 
+                                                 Margin="0,5,0,0"
+                                                 HorizontalAlignment="Center"
+                                                 FontSize="10"/>
+                                    </StackPanel>
+                                    
+                                    <!-- 미연결 상태 표시 (사용 중이지만 연결되지 않은 카메라) -->
+                                    <StackPanel VerticalAlignment="Center" 
+                                              HorizontalAlignment="Center">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding Camera.IsEnabled, Mode=OneWay}" Value="True"/>
+                                                            <Condition Binding="{Binding Camera.IsConnected, Mode=OneWay}" Value="False"/>
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
                                         <TextBlock Text="📷" FontSize="48" HorizontalAlignment="Center"/>
                                         <TextBlock Text="카메라 미연결" 
                                                  Foreground="Gray" 

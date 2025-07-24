@@ -32,6 +32,9 @@ namespace SafetyVisionMonitor.ViewModels
         [ObservableProperty]
         private int saveFrameInterval = 30; // 30프레임마다 저장 (약 1초마다)
         
+        [ObservableProperty]
+        private int activeCameraCount = 0;
+        
         public CameraManageViewModel()
         {
             Title = "카메라 관리";
@@ -88,12 +91,16 @@ namespace SafetyVisionMonitor.ViewModels
                     item.Camera.Width = saved.Width;
                     item.Camera.Height = saved.Height;
                     item.Camera.Fps = saved.Fps;
+                    item.Camera.IsEnabled = saved.IsEnabled;
                 }
             }
             catch (Exception ex)
             {
                 StatusMessage = $"설정 불러오기 실패: {ex.Message}";
             }
+            
+            // 활성 카메라 카운트 업데이트
+            UpdateActiveCameraCount();
         }
         
         public override void OnActivated()
@@ -307,11 +314,53 @@ namespace SafetyVisionMonitor.ViewModels
         }
         
         [RelayCommand]
+        private async Task ToggleCameraEnabled(int index)
+        {
+            if (index >= 0 && index < CameraItems.Count)
+            {
+                var item = CameraItems[index];
+                
+                // 사용 여부 토글
+                item.Camera.IsEnabled = !item.Camera.IsEnabled;
+                
+                // 미사용으로 변경 시 연결 해제
+                if (!item.Camera.IsEnabled && item.Camera.IsConnected)
+                {
+                    App.CameraService.DisconnectCamera(item.Camera.Id);
+                    item.Camera.IsConnected = false;
+                    item.CurrentFrame = null;
+                }
+                
+                // 설정 저장
+                await SaveCameraConfigurations();
+                
+                // 활성 카메라 카운트 업데이트
+                UpdateActiveCameraCount();
+                
+                StatusMessage = item.Camera.IsEnabled 
+                    ? $"{item.Camera.Name} 사용으로 변경됨" 
+                    : $"{item.Camera.Name} 미사용으로 변경됨 (AI 처리 제외)";
+            }
+        }
+        
+        private void UpdateActiveCameraCount()
+        {
+            ActiveCameraCount = CameraItems.Count(item => item.Camera.IsEnabled);
+        }
+
+        [RelayCommand]
         private async Task ToggleConnection(int index)
         {
             if (index >= 0 && index < CameraItems.Count)
             {
                 var item = CameraItems[index];
+                
+                // 미사용 카메라는 연결할 수 없음
+                if (!item.Camera.IsEnabled)
+                {
+                    StatusMessage = $"{item.Camera.Name}은(는) 미사용 상태입니다. 먼저 사용함으로 변경해주세요.";
+                    return;
+                }
                 
                 if (item.Camera.IsConnected)
                 {

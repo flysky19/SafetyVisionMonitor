@@ -62,6 +62,7 @@ namespace SafetyVisionMonitor.Database
         public int Width { get; set; }
         public int Height { get; set; }
         public double Fps { get; set; }
+        public bool IsEnabled { get; set; } = true;
         public DateTime LastModified { get; set; }
     }
     

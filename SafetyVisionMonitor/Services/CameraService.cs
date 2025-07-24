@@ -27,6 +27,12 @@ namespace SafetyVisionMonitor.Services
         
         public async Task<bool> ConnectCamera(Camera camera)
         {
+            // 미사용 카메라는 연결할 수 없음
+            if (!camera.IsEnabled)
+            {
+                throw new InvalidOperationException($"카메라 '{camera.Name}'은(는) 미사용 상태입니다. 먼저 사용함으로 변경해주세요.");
+            }
+            
             if (_connections.Count >= _maxCameras)
             {
                 throw new InvalidOperationException($"최대 {_maxCameras}대까지만 연결 가능합니다.");
@@ -69,6 +75,17 @@ namespace SafetyVisionMonitor.Services
                 .ToList();
         }
         
+        /// <summary>
+        /// 활성화된 카메라 목록 반환 (AI/트래킹 처리용)
+        /// </summary>
+        public List<Camera> GetActiveCameras()
+        {
+            return _connections.Values
+                .Where(c => c.Camera.IsEnabled)
+                .Select(c => c.Camera)
+                .ToList();
+        }
+        
         public void UpdateCameraSettings(string cameraId, Camera settings)
         {
             if (_connections.TryGetValue(cameraId, out var connection))
@@ -89,6 +106,13 @@ namespace SafetyVisionMonitor.Services
         private void OnFrameReceived(object? sender, CameraFrameEventArgs e)
         {
             System.Diagnostics.Debug.WriteLine($"CameraService: Frame received from {e.CameraId}");
+            
+            // 미사용 카메라의 프레임은 무시
+            if (sender is CameraConnection connection && !connection.Camera.IsEnabled)
+            {
+                e.Frame?.Dispose();
+                return;
+            }
     
             if (e.Frame != null && !e.Frame.Empty())
             {

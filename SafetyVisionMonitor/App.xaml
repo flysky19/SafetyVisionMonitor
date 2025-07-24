@@ -28,6 +28,7 @@
             <converters:UsageToColorConverter x:Key="UsageToColorConverter"/>
             <converters:TemperatureToColorConverter x:Key="TemperatureToColorConverter"/>
             <converters:BoolToYesNoConverter x:Key="BoolToYesNoConverter"/>
+            <converters:BoolToEnabledTextConverter x:Key="BoolToEnabledTextConverter"/>
             
             
             <DataTemplate DataType="{x:Type vm:DashboardViewModel}">

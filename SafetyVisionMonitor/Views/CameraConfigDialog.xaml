@@ -45,6 +45,16 @@
                                Background="#333" Foreground="Gray" 
                                BorderBrush="#444" Padding="5"
                                Margin="0,0,0,15"/>
+                        
+                        <!-- 카메라 사용 여부 -->
+                        <CheckBox Content="이 카메라 사용" 
+                                IsChecked="{Binding Camera.IsEnabled}"
+                                Foreground="White" FontWeight="SemiBold"
+                                Margin="0,0,0,10">
+                            <CheckBox.ToolTip>
+                                <TextBlock Text="체크 해제 시 AI 처리 및 트래킹에서 제외됩니다"/>
+                            </CheckBox.ToolTip>
+                        </CheckBox>
                     </StackPanel>
                 </Border>
                 

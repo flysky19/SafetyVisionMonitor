@@ -26,6 +26,9 @@ namespace SafetyVisionMonitor.Models
         private bool isConnected;
         
         [ObservableProperty]
+        private bool isEnabled = true;
+        
+        [ObservableProperty]
         private double fps = 25.0;
         
         [ObservableProperty]
@@ -59,7 +62,7 @@ namespace SafetyVisionMonitor.Models
         private bool autoWhiteBalance = true;
         
         public string Resolution => $"{Width}×{Height}";
-        public string Status => IsConnected ? "연결됨" : "연결 안됨";
+        public string Status => !IsEnabled ? "미사용" : (IsConnected ? "연결됨" : "연결 안됨");
     }
     
     public enum CameraType

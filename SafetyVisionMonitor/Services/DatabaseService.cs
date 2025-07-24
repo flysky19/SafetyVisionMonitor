@@ -78,6 +78,7 @@ namespace SafetyVisionMonitor.Services
                     Width = camera.Width,
                     Height = camera.Height,
                     Fps = camera.Fps,
+                    IsEnabled = camera.IsEnabled,
                     LastModified = DateTime.Now
                 });
             }
@@ -103,6 +104,7 @@ namespace SafetyVisionMonitor.Services
                 existing.Width = camera.Width;
                 existing.Height = camera.Height;
                 existing.Fps = camera.Fps;
+                existing.IsEnabled = camera.IsEnabled;
                 existing.LastModified = DateTime.Now;
             }
             else
@@ -117,6 +119,7 @@ namespace SafetyVisionMonitor.Services
                     Width = camera.Width,
                     Height = camera.Height,
                     Fps = camera.Fps,
+                    IsEnabled = camera.IsEnabled,
                     LastModified = DateTime.Now
                 });
             }
@@ -139,7 +142,8 @@ namespace SafetyVisionMonitor.Services
                 Type = Enum.Parse<CameraType>(config.Type),
                 Width = config.Width,
                 Height = config.Height,
-                Fps = config.Fps
+                Fps = config.Fps,
+                IsEnabled = config.IsEnabled
             }).ToList();
         }
         
