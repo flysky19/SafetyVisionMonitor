@@ -68,6 +68,18 @@ namespace SafetyVisionMonitor.Database
         // 캘리브레이션 정보
         public double CalibrationPixelsPerMeter { get; set; } = 100.0;
         public bool IsCalibrated { get; set; } = false;
+        
+        // 화질 설정
+        public double Brightness { get; set; } = 128.0;
+        public double Contrast { get; set; } = 32.0;
+        public double Saturation { get; set; } = 64.0;
+        public double Exposure { get; set; } = -1.0;
+        public double Gain { get; set; } = 0.0;
+        public double Hue { get; set; } = 0.0;
+        public double Gamma { get; set; } = 1.0;
+        public double Sharpness { get; set; } = 0.0;
+        public bool AutoExposure { get; set; } = true;
+        public bool AutoWhiteBalance { get; set; } = true;
     }
     
     // 3D 구역 설정 저장용

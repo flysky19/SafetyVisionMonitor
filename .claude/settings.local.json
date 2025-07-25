@@ -4,7 +4,8 @@
       "Bash(mkdir:*)",
       "Bash(tree:*)",
       "Bash(dotnet build:*)",
-      "Bash(rg:*)"
+      "Bash(rg:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

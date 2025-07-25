@@ -17,6 +17,63 @@ namespace SafetyVisionMonitor.Services
             // DB 초기화
             using var context = new AppDbContext();
             context.Database.EnsureCreated();
+            
+            // 화질 설정 컬럼 마이그레이션
+            MigrateCameraQualitySettings(context);
+        }
+        
+        private void MigrateCameraQualitySettings(AppDbContext context)
+        {
+            try
+            {
+                // 화질 컬럼이 존재하는지 확인하고 기본값으로 업데이트
+                var connection = context.Database.GetDbConnection();
+                if (connection.State != System.Data.ConnectionState.Open)
+                {
+                    connection.Open();
+                }
+                
+                using var command = connection.CreateCommand();
+                
+                // 화질 컬럼들을 기본값으로 업데이트 (NULL인 경우에만)
+                command.CommandText = @"
+                    UPDATE CameraConfigs 
+                    SET 
+                        Brightness = COALESCE(Brightness, 128.0),
+                        Contrast = COALESCE(Contrast, 32.0),
+                        Saturation = COALESCE(Saturation, 64.0),
+                        Exposure = COALESCE(Exposure, -1.0),
+                        Gain = COALESCE(Gain, 0.0),
+                        Hue = COALESCE(Hue, 0.0),
+                        Gamma = COALESCE(Gamma, 1.0),
+                        Sharpness = COALESCE(Sharpness, 0.0),
+                        AutoExposure = COALESCE(AutoExposure, 1),
+                        AutoWhiteBalance = COALESCE(AutoWhiteBalance, 1)
+                    WHERE Brightness IS NULL OR Contrast IS NULL;
+                ";
+                
+                var rowsAffected = command.ExecuteNonQuery();
+                
+                if (rowsAffected > 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Migrated {rowsAffected} camera records with default quality settings");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Camera quality migration failed: {ex.Message}");
+                // 마이그레이션 실패 시 DB 재생성을 위해 기존 DB 삭제
+                try
+                {
+                    context.Database.EnsureDeleted();
+                    context.Database.EnsureCreated();
+                    System.Diagnostics.Debug.WriteLine("Database recreated due to migration failure");
+                }
+                catch (Exception recreateEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Database recreation failed: {recreateEx.Message}");
+                }
+            }
         }
         
         // 안전 이벤트 저장
@@ -65,27 +122,52 @@ namespace SafetyVisionMonitor.Services
         {
             using var context = new AppDbContext();
             
-            // 기존 설정 삭제
-            context.CameraConfigs.RemoveRange(context.CameraConfigs);
-            
-            // 새 설정 저장
-            foreach (var camera in cameras)
+            try
             {
-                context.CameraConfigs.Add(new CameraConfig
+                // 기존 설정 삭제 (안전하게)
+                var existingConfigs = await context.CameraConfigs.ToListAsync();
+                if (existingConfigs.Any())
                 {
-                    CameraId = camera.Id,
-                    Name = camera.Name,
-                    ConnectionString = camera.ConnectionString,
-                    Type = camera.Type.ToString(),
-                    Width = camera.Width,
-                    Height = camera.Height,
-                    Fps = camera.Fps,
-                    IsEnabled = camera.IsEnabled,
-                    LastModified = DateTime.Now
-                });
+                    context.CameraConfigs.RemoveRange(existingConfigs);
+                }
+                
+                // 새 설정 저장
+                foreach (var camera in cameras)
+                {
+                    context.CameraConfigs.Add(new CameraConfig
+                    {
+                        CameraId = camera.Id,
+                        Name = camera.Name,
+                        ConnectionString = camera.ConnectionString,
+                        Type = camera.Type.ToString(),
+                        Width = camera.Width,
+                        Height = camera.Height,
+                        Fps = camera.Fps,
+                        IsEnabled = camera.IsEnabled,
+                        CalibrationPixelsPerMeter = camera.CalibrationPixelsPerMeter,
+                        IsCalibrated = camera.IsCalibrated,
+                        // 화질 설정
+                        Brightness = camera.Brightness,
+                        Contrast = camera.Contrast,
+                        Saturation = camera.Saturation,
+                        Exposure = camera.Exposure,
+                        Gain = camera.Gain,
+                        Hue = camera.Hue,
+                        Gamma = camera.Gamma,
+                        Sharpness = camera.Sharpness,
+                        AutoExposure = camera.AutoExposure,
+                        AutoWhiteBalance = camera.AutoWhiteBalance,
+                        LastModified = DateTime.Now
+                    });
+                }
+                
+                await context.SaveChangesAsync();
             }
-            
-            await context.SaveChangesAsync();
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Camera configuration error: {ex}");
+                throw;
+            }
         }
         
         // 단일 카메라 설정 저장
@@ -109,6 +191,17 @@ namespace SafetyVisionMonitor.Services
                 existing.IsEnabled = camera.IsEnabled;
                 existing.CalibrationPixelsPerMeter = camera.CalibrationPixelsPerMeter;
                 existing.IsCalibrated = camera.IsCalibrated;
+                // 화질 설정 업데이트
+                existing.Brightness = camera.Brightness;
+                existing.Contrast = camera.Contrast;
+                existing.Saturation = camera.Saturation;
+                existing.Exposure = camera.Exposure;
+                existing.Gain = camera.Gain;
+                existing.Hue = camera.Hue;
+                existing.Gamma = camera.Gamma;
+                existing.Sharpness = camera.Sharpness;
+                existing.AutoExposure = camera.AutoExposure;
+                existing.AutoWhiteBalance = camera.AutoWhiteBalance;
                 existing.LastModified = DateTime.Now;
             }
             else
@@ -126,6 +219,17 @@ namespace SafetyVisionMonitor.Services
                     IsEnabled = camera.IsEnabled,
                     CalibrationPixelsPerMeter = camera.CalibrationPixelsPerMeter,
                     IsCalibrated = camera.IsCalibrated,
+                    // 화질 설정
+                    Brightness = camera.Brightness,
+                    Contrast = camera.Contrast,
+                    Saturation = camera.Saturation,
+                    Exposure = camera.Exposure,
+                    Gain = camera.Gain,
+                    Hue = camera.Hue,
+                    Gamma = camera.Gamma,
+                    Sharpness = camera.Sharpness,
+                    AutoExposure = camera.AutoExposure,
+                    AutoWhiteBalance = camera.AutoWhiteBalance,
                     LastModified = DateTime.Now
                 });
             }
@@ -151,7 +255,18 @@ namespace SafetyVisionMonitor.Services
                 Fps = config.Fps,
                 IsEnabled = config.IsEnabled,
                 CalibrationPixelsPerMeter = config.CalibrationPixelsPerMeter,
-                IsCalibrated = config.IsCalibrated
+                IsCalibrated = config.IsCalibrated,
+                // 화질 설정 로드
+                Brightness = config.Brightness,
+                Contrast = config.Contrast,
+                Saturation = config.Saturation,
+                Exposure = config.Exposure,
+                Gain = config.Gain,
+                Hue = config.Hue,
+                Gamma = config.Gamma,
+                Sharpness = config.Sharpness,
+                AutoExposure = config.AutoExposure,
+                AutoWhiteBalance = config.AutoWhiteBalance
             }).ToList();
         }
         

@@ -282,16 +282,28 @@ namespace SafetyVisionMonitor.ViewModels
             });
         }
         
+        // 성능 최적화를 위한 프레임 스키핑
+        private DateTime _lastFrameUpdate = DateTime.MinValue;
+        private readonly TimeSpan _minFrameInterval = TimeSpan.FromMilliseconds(33); // 30 FPS 제한
+        
         private void OnFrameReceived(object? sender, CameraFrameEventArgs e)
         {
             try
             {
                 if (e?.Frame == null || e.Frame.Empty())
                 {
-                    System.Diagnostics.Debug.WriteLine($"Empty frame received for {e?.CameraId}");
-                    e?.Frame?.Dispose(); // 빈 프레임도 해제
+                    e?.Frame?.Dispose();
                     return;
                 }
+                
+                // 프레임 스키핑 - 성능 최적화
+                var now = DateTime.Now;
+                if (now - _lastFrameUpdate < _minFrameInterval)
+                {
+                    e.Frame?.Dispose();
+                    return;
+                }
+                _lastFrameUpdate = now;
         
                 // UI 스레드에서 변환과 업데이트를 모두 처리
                 App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
@@ -316,18 +328,9 @@ namespace SafetyVisionMonitor.ViewModels
                                     var cameraVm = Cameras.FirstOrDefault(c => c.CameraId == e.CameraId);
                                     if (cameraVm != null)
                                     {
-                                        // 이전 프레임 정리 (GC 부담 감소)
-                                        var oldFrame = cameraVm.CurrentFrame;
                                         cameraVm.CurrentFrame = bitmap;
                                         cameraVm.DetectionCount++;
-                                
-                                        //System.Diagnostics.Debug.WriteLine(
-                                        //    $"Frame updated for {e.CameraId}: {bitmap.PixelWidth}x{bitmap.PixelHeight}");
                                     }
-                                }
-                                else
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"Conversion failed for {e.CameraId}");
                                 }
                             }
                         }
@@ -341,7 +344,7 @@ namespace SafetyVisionMonitor.ViewModels
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"OnFrameReceived error: {ex.Message}");
-                e?.Frame?.Dispose(); // 예외 발생 시에도 해제
+                e?.Frame?.Dispose();
             }
         }
         
@@ -689,28 +692,39 @@ namespace SafetyVisionMonitor.ViewModels
                 
                 if (points.Count >= 3)
                 {
-                    // 다각형으로 채우기 (투명도 적용)
-                    var overlay = frame.Clone();
-                    Cv2.FillPoly(overlay, new Point[][] { points.ToArray() }, color);
+                    // 성능 최적화: 투명도가 낮은 경우 오버레이 생성하지 않음
+                    if (zone.Opacity > 0.05)
+                    {
+                        using (var overlay = frame.Clone())
+                        {
+                            Cv2.FillPoly(overlay, new Point[][] { points.ToArray() }, color);
+                            
+                            // 투명도 적용하여 원본과 합성
+                            var alpha = zone.Opacity;
+                            Cv2.AddWeighted(frame, 1.0 - alpha, overlay, alpha, 0, frame);
+                        }
+                    }
                     
-                    // 투명도 적용하여 원본과 합성
-                    var alpha = zone.Opacity;
-                    Cv2.AddWeighted(frame, 1.0 - alpha, overlay, alpha, 0, frame);
-                    
-                    // 구역 경계선 그리기
+                    // 구역 경계선 그리기 (항상 표시)
                     Cv2.Polylines(frame, new Point[][] { points.ToArray() }, true, color, 2);
                     
-                    // 구역 이름 표시 (선택사항)
+                    // 구역 이름 표시 (성능을 위해 중심점 계산 최적화)
                     if (points.Count > 0)
                     {
-                        var centerX = (int)points.Average(p => p.X);
-                        var centerY = (int)points.Average(p => p.Y);
+                        // Average 대신 더 빠른 계산
+                        var sumX = 0;
+                        var sumY = 0;
+                        foreach (var p in points)
+                        {
+                            sumX += p.X;
+                            sumY += p.Y;
+                        }
+                        var centerX = sumX / points.Count;
+                        var centerY = sumY / points.Count;
                         
                         Cv2.PutText(frame, zone.Name, new Point(centerX - 30, centerY), 
                             HersheyFonts.HersheySimplex, 0.6, new Scalar(255, 255, 255), 2);
                     }
-                    
-                    overlay.Dispose();
                 }
             }
             catch (Exception ex)

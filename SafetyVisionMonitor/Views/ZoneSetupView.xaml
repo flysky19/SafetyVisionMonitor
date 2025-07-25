@@ -90,44 +90,14 @@
                          Source="{Binding CurrentCameraFrame}"
                          Stretch="Uniform"/>
                     
-                    <!-- 구역 오버레이 캔버스 -->
-                    <Canvas x:Name="ZoneCanvas" 
+                    <!-- 마우스 이벤트 캡처를 위한 투명 오버레이 -->
+                    <Canvas x:Name="MouseOverlay" 
                           Background="Transparent"
                           MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
+                          MouseMove="Canvas_MouseMove"
+                          MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
                           Visibility="{Binding ShowZoneOverlay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        
-                        <!-- 저장된 구역들은 OpenCV로 카메라 프레임에 직접 그려집니다 -->
-                        
-                        <!-- 임시 다각형 (그리기 중) -->
-                        <Polygon Points="{Binding TempPolygonPointCollection}" 
-                               Fill="Transparent" 
-                               Stroke="Yellow" 
-                               StrokeThickness="2"
-                               StrokeDashArray="5,3"
-                               Visibility="{Binding IsDrawingMode, 
-                                          Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                        
-                        <!-- 클릭한 점들 표시 -->
-                        <ItemsControl ItemsSource="{Binding VisualPoints}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <Canvas/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Grid>
-                                        <Ellipse Width="10" Height="10" 
-                                               Fill="Yellow" 
-                                               Stroke="Black" StrokeThickness="2">
-                                            <Ellipse.RenderTransform>
-                                                <TranslateTransform X="{Binding X}" Y="{Binding Y}"/>
-                                            </Ellipse.RenderTransform>
-                                        </Ellipse>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                        <!-- 모든 시각적 요소는 OpenCV로 이미지에 직접 그려집니다 -->
                     </Canvas>
                     
                     <!-- 미연결 상태 표시 -->
@@ -177,6 +147,34 @@
                         <syncfusion:ButtonAdv Label="취소"
                                             Command="{Binding CancelCalibrationCommand}"/>
                     </StackPanel>
+                </Grid>
+            </Border>
+            
+            <!-- 편집 모드 패널 -->
+            <Border Grid.Row="2" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,10,0,0"
+                    Visibility="{Binding IsEditMode, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <TextBlock Grid.Column="0" 
+                             Text="{Binding EditingZone.Name, StringFormat='편집 중: {0}'}" 
+                             Foreground="LightBlue" 
+                             VerticalAlignment="Center" 
+                             FontWeight="Bold"/>
+                    
+                    <syncfusion:ButtonAdv Grid.Column="1" 
+                                        Label="편집 완료"
+                                        Command="{Binding FinishEditZoneCommand}"
+                                        Margin="0,0,5,0"/>
+                    
+                    <syncfusion:ButtonAdv Grid.Column="2" 
+                                        Label="취소"
+                                        Command="{Binding CancelEditZoneCommand}"
+                                        Background="#E74C3C"/>
                 </Grid>
             </Border>
             
@@ -267,7 +265,11 @@
                                 </TextBlock>
                                 
                                 <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Content="편집" Margin="2" Padding="5,2"/>
+                                    <Button Content="편집" 
+                                          Command="{Binding DataContext.StartEditZoneCommand,
+                                                   RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          CommandParameter="{Binding}"
+                                          Margin="2" Padding="5,2"/>
                                     <Button Content="삭제" 
                                           Command="{Binding DataContext.DeleteZoneCommand,
                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"

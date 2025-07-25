@@ -622,70 +622,70 @@ namespace SafetyVisionMonitor.Services
                 try
                 {
                     // 밝기
-                    if (Math.Abs(Camera.Brightness - settings.Brightness) > 0.1)
+                    //if (Math.Abs(Camera.Brightness - settings.Brightness) > 0.1)
                     {
                         _capture.Set(VideoCaptureProperties.Brightness, settings.Brightness);
                         Camera.Brightness = settings.Brightness;
                     }
                     
                     // 대비
-                    if (Math.Abs(Camera.Contrast - settings.Contrast) > 0.1)
+                    //if (Math.Abs(Camera.Contrast - settings.Contrast) > 0.1)
                     {
                         _capture.Set(VideoCaptureProperties.Contrast, settings.Contrast);
                         Camera.Contrast = settings.Contrast;
                     }
                     
                     // 채도
-                    if (Math.Abs(Camera.Saturation - settings.Saturation) > 0.1)
+                    //if (Math.Abs(Camera.Saturation - settings.Saturation) > 0.1)
                     {
                         _capture.Set(VideoCaptureProperties.Saturation, settings.Saturation);
                         Camera.Saturation = settings.Saturation;
                     }
                     
                     // 노출
-                    if (Math.Abs(Camera.Exposure - settings.Exposure) > 0.1)
+                    //if (Math.Abs(Camera.Exposure - settings.Exposure) > 0.1)
                     {
                         _capture.Set(VideoCaptureProperties.Exposure, settings.Exposure);
                         Camera.Exposure = settings.Exposure;
                     }
                     
                     // 게인
-                    if (Math.Abs(Camera.Gain - settings.Gain) > 0.1)
+                    //if (Math.Abs(Camera.Gain - settings.Gain) > 0.1)
                     {
                         _capture.Set(VideoCaptureProperties.Gain, settings.Gain);
                         Camera.Gain = settings.Gain;
                     }
                     
                     // 색조
-                    if (Math.Abs(Camera.Hue - settings.Hue) > 0.1)
+                    //if (Math.Abs(Camera.Hue - settings.Hue) > 0.1)
                     {
                         _capture.Set(VideoCaptureProperties.Hue, settings.Hue);
                         Camera.Hue = settings.Hue;
                     }
                     
                     // 감마
-                    if (Math.Abs(Camera.Gamma - settings.Gamma) > 0.1)
-                    {
-                        _capture.Set(VideoCaptureProperties.Gamma, settings.Gamma);
-                        Camera.Gamma = settings.Gamma;
-                    }
+                    //if (Math.Abs(Camera.Gamma - settings.Gamma) > 0.1)
+                    // {
+                    //     _capture.Set(VideoCaptureProperties.Gamma, settings.Gamma);
+                    //     Camera.Gamma = settings.Gamma;
+                    // }
                     
                     // 선명도
-                    if (Math.Abs(Camera.Sharpness - settings.Sharpness) > 0.1)
+                    //if (Math.Abs(Camera.Sharpness - settings.Sharpness) > 0.1)
                     {
                         _capture.Set(VideoCaptureProperties.Sharpness, settings.Sharpness);
                         Camera.Sharpness = settings.Sharpness;
                     }
                     
                     // 자동 노출
-                    if (Camera.AutoExposure != settings.AutoExposure)
+                    if (settings.AutoExposure == true)
                     {
                         _capture.Set(VideoCaptureProperties.AutoExposure, settings.AutoExposure ? 0.75 : 0.25);
                         Camera.AutoExposure = settings.AutoExposure;
                     }
                     
                     // 자동 화이트 밸런스
-                    if (Camera.AutoWhiteBalance != settings.AutoWhiteBalance)
+                    if (settings.AutoWhiteBalance == true)
                     {
                         _capture.Set(VideoCaptureProperties.AutoWB, settings.AutoWhiteBalance ? 1 : 0);
                         Camera.AutoWhiteBalance = settings.AutoWhiteBalance;

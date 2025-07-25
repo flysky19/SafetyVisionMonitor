@@ -26,14 +26,49 @@ public partial class ZoneSetupView : UserControl
     {
         if (DataContext is ZoneSetupViewModel viewModel)
         {
-            // Canvas 내에서의 클릭 위치 가져오기
             var canvas = sender as Canvas;
             if (canvas != null)
             {
                 var clickPoint = e.GetPosition(canvas);
-                    
-                // ViewModel의 메서드 호출
-                viewModel.OnCanvasClick(clickPoint);
+                
+                // Mouse Capture 설정 (드래그 이벤트를 위해)
+                canvas.CaptureMouse();
+                
+                // ViewModel의 MouseDown 메서드 호출
+                viewModel.OnCanvasMouseDown(clickPoint);
+            }
+        }
+    }
+    
+    private void Canvas_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (DataContext is ZoneSetupViewModel viewModel)
+        {
+            var canvas = sender as Canvas;
+            if (canvas != null && canvas.IsMouseCaptured)
+            {
+                var movePoint = e.GetPosition(canvas);
+                
+                // ViewModel의 MouseMove 메서드 호출
+                viewModel.OnCanvasMouseMove(movePoint);
+            }
+        }
+    }
+    
+    private void Canvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (DataContext is ZoneSetupViewModel viewModel)
+        {
+            var canvas = sender as Canvas;
+            if (canvas != null)
+            {
+                var releasePoint = e.GetPosition(canvas);
+                
+                // Mouse Capture 해제
+                canvas.ReleaseMouseCapture();
+                
+                // ViewModel의 MouseUp 메서드 호출
+                viewModel.OnCanvasMouseUp(releasePoint);
             }
         }
     }

@@ -199,7 +199,7 @@
                                 <ColumnDefinition Width="60"/>
                             </Grid.ColumnDefinitions>
                             <Slider Grid.Column="0" Value="{Binding Camera.Contrast}"
-                                  Minimum="0" Maximum="100" 
+                                  Minimum="0" Maximum="128" 
                                   TickFrequency="10" IsSnapToTickEnabled="False"/>
                             <TextBox Grid.Column="1" Text="{Binding Camera.Contrast, StringFormat=N0}"
                                    Background="#1A1A1A" Foreground="White" 
@@ -215,7 +215,7 @@
                                 <ColumnDefinition Width="60"/>
                             </Grid.ColumnDefinitions>
                             <Slider Grid.Column="0" Value="{Binding Camera.Saturation}"
-                                  Minimum="0" Maximum="100" 
+                                  Minimum="0" Maximum="128" 
                                   TickFrequency="10" IsSnapToTickEnabled="False"/>
                             <TextBox Grid.Column="1" Text="{Binding Camera.Saturation, StringFormat=N0}"
                                    Background="#1A1A1A" Foreground="White" 
@@ -297,7 +297,7 @@
                                 <ColumnDefinition Width="60"/>
                             </Grid.ColumnDefinitions>
                             <Slider Grid.Column="0" Value="{Binding Camera.Sharpness}"
-                                  Minimum="0" Maximum="100" 
+                                  Minimum="0" Maximum="128" 
                                   TickFrequency="10" IsSnapToTickEnabled="False"/>
                             <TextBox Grid.Column="1" Text="{Binding Camera.Sharpness, StringFormat=N0}"
                                    Background="#1A1A1A" Foreground="White" 

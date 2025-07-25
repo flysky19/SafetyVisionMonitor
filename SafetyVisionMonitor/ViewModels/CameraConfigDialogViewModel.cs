@@ -150,22 +150,8 @@ namespace SafetyVisionMonitor.ViewModels
             
             try
             {
-                // 현재 카메라 설정을 DB에 저장 (효율적인 방식으로 개선 필요)
-                var cameras = await App.DatabaseService.LoadCameraConfigsAsync();
-                
-                // 해당 카메라 찾아서 업데이트
-                var existingCamera = cameras.FirstOrDefault(c => c.Id == Camera.Id);
-                if (existingCamera != null)
-                {
-                    CopyPropertiesTo(existingCamera);
-                }
-                else
-                {
-                    cameras.Add(CreateCameraCopy(Camera));
-                }
-                
-                // DB에 저장
-                await App.DatabaseService.SaveCameraConfigsAsync(cameras);
+                // 단일 카메라 설정을 직접 DB에 저장 (효율적이고 정확한 방식)
+                await App.DatabaseService.SaveCameraConfigAsync(Camera);
                 
                 TestResult = "✓ 설정이 DB에 저장되었습니다.";
                 TestResultColor = Brushes.LightGreen;
