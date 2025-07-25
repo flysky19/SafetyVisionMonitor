@@ -96,24 +96,7 @@
                           MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
                           Visibility="{Binding ShowZoneOverlay, Converter={StaticResource BooleanToVisibilityConverter}}">
                         
-                        <!-- 저장된 구역들 표시 -->
-                        <ItemsControl ItemsSource="{Binding ZoneVisualizations}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <Canvas/>
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Polygon Points="{Binding PointCollection}" 
-                                           Fill="{Binding ZoneColor, Converter={StaticResource ColorToBrushConverter}}"
-                                           Opacity="{Binding Opacity}"
-                                           Stroke="{Binding ZoneColor, Converter={StaticResource ColorToBrushConverter}}"
-                                           StrokeThickness="2"
-                                           Visibility="{Binding IsEnabled, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                        <!-- 저장된 구역들은 OpenCV로 카메라 프레임에 직접 그려집니다 -->
                         
                         <!-- 임시 다각형 (그리기 중) -->
                         <Polygon Points="{Binding TempPolygonPointCollection}" 
