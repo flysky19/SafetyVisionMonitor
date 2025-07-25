@@ -46,9 +46,26 @@
                             HorizontalAlignment="Center"/>
                     
                     <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <syncfusion:ButtonAdv Margin="0,0,5,0">
+                            <syncfusion:ButtonAdv.Style>
+                                <Style TargetType="syncfusion:ButtonAdv">
+                                    <Setter Property="Label" Value="캘리브레이션"/>
+                                    <Setter Property="Command" Value="{Binding StartCalibrationCommand}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCalibrationMode}" Value="True">
+                                            <Setter Property="Background" Value="#3498DB"/>
+                                            <Setter Property="Label" Value="취소"/>
+                                            <Setter Property="Command" Value="{Binding CancelCalibrationCommand}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </syncfusion:ButtonAdv.Style>
+                        </syncfusion:ButtonAdv>
+                        
                         <syncfusion:ButtonAdv Label="{Binding DrawingModeText}"
                                             Command="{Binding StartDrawingCommand}"
-                                            Margin="0,0,5,0">
+                                            Margin="0,0,5,0"
+                                            IsEnabled="{Binding IsCalibrationMode, Converter={StaticResource InverseBooleanConverter}}">
                             <syncfusion:ButtonAdv.Style>
                                 <Style TargetType="syncfusion:ButtonAdv">
                                     <Style.Triggers>
@@ -79,8 +96,8 @@
                           MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
                           Visibility="{Binding ShowZoneOverlay, Converter={StaticResource BooleanToVisibilityConverter}}">
                         
-                        <!-- 임시 그리기 점들 -->
-                        <ItemsControl ItemsSource="{Binding TempDrawingPoints}">
+                        <!-- 저장된 구역들 표시 -->
+                        <ItemsControl ItemsSource="{Binding ZoneVisualizations}">
                             <ItemsControl.ItemsPanel>
                                 <ItemsPanelTemplate>
                                     <Canvas/>
@@ -88,11 +105,43 @@
                             </ItemsControl.ItemsPanel>
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Ellipse Width="10" Height="10" Fill="Yellow" Stroke="Black" StrokeThickness="2">
-                                        <Ellipse.RenderTransform>
-                                            <TranslateTransform X="{Binding X}" Y="{Binding Y}"/>
-                                        </Ellipse.RenderTransform>
-                                    </Ellipse>
+                                    <Polygon Points="{Binding PointCollection}" 
+                                           Fill="{Binding ZoneColor, Converter={StaticResource ColorToBrushConverter}}"
+                                           Opacity="{Binding Opacity}"
+                                           Stroke="{Binding ZoneColor, Converter={StaticResource ColorToBrushConverter}}"
+                                           StrokeThickness="2"
+                                           Visibility="{Binding IsEnabled, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        
+                        <!-- 임시 다각형 (그리기 중) -->
+                        <Polygon Points="{Binding TempPolygonPointCollection}" 
+                               Fill="Transparent" 
+                               Stroke="Yellow" 
+                               StrokeThickness="2"
+                               StrokeDashArray="5,3"
+                               Visibility="{Binding IsDrawingMode, 
+                                          Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        
+                        <!-- 클릭한 점들 표시 -->
+                        <ItemsControl ItemsSource="{Binding VisualPoints}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <Canvas/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Ellipse Width="10" Height="10" 
+                                               Fill="Yellow" 
+                                               Stroke="Black" StrokeThickness="2">
+                                            <Ellipse.RenderTransform>
+                                                <TranslateTransform X="{Binding X}" Y="{Binding Y}"/>
+                                            </Ellipse.RenderTransform>
+                                        </Ellipse>
+                                    </Grid>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -108,6 +157,42 @@
                                  Foreground="Gray" 
                                  Margin="0,10,0,0"
                                  HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            
+            <!-- 캘리브레이션 패널 -->
+            <Border Grid.Row="2" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,10,0,0"
+                    Visibility="{Binding IsCalibrationMode, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <TextBlock Grid.Row="0" Text="{Binding CalibrationStep}" 
+                             Foreground="LightBlue" FontWeight="Bold" 
+                             HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                    
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,10">
+                        <TextBlock Text="참조 거리(m):" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <syncfusion:DoubleTextBox Value="{Binding ReferenceDistance}"
+                                                   MinValue="0.1" MaxValue="10.0"
+                                                   Width="80" Margin="0,0,10,0"/>
+                        <TextBlock Text="{Binding PixelsPerMeter, StringFormat='스케일: {0:F1} px/m'}" 
+                                 Foreground="Yellow" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center">
+                        <syncfusion:ButtonAdv Label="캘리브레이션 완료"
+                                            Command="{Binding CompleteCalibrationCommand}"
+                                            IsEnabled="{Binding ReferencePoints.Count, 
+                                                      Converter={StaticResource CountToBoolConverter}, 
+                                                      ConverterParameter=2}"
+                                            Margin="0,0,5,0"/>
+                        <syncfusion:ButtonAdv Label="취소"
+                                            Command="{Binding CancelCalibrationCommand}"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -189,11 +274,8 @@
                                     </StackPanel>
                                     
                                     <CheckBox Grid.Column="1" 
-                                            IsChecked="{Binding IsEnabled}"
-                                            HorizontalAlignment="Right"
-                                            Command="{Binding DataContext.ToggleZoneCommand,
-                                                     RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}"/>
+                                            IsChecked="{Binding IsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            HorizontalAlignment="Right"/>
                                 </Grid>
                                 
                                 <TextBlock Grid.Row="1" Foreground="Gray" FontSize="11" Margin="0,5">

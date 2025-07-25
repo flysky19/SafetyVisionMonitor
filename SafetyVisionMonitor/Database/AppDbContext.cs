@@ -64,6 +64,10 @@ namespace SafetyVisionMonitor.Database
         public double Fps { get; set; }
         public bool IsEnabled { get; set; } = true;
         public DateTime LastModified { get; set; }
+        
+        // 캘리브레이션 정보
+        public double CalibrationPixelsPerMeter { get; set; } = 100.0;
+        public bool IsCalibrated { get; set; } = false;
     }
     
     // 3D 구역 설정 저장용
@@ -79,6 +83,11 @@ namespace SafetyVisionMonitor.Database
         public double Opacity { get; set; }
         public bool IsEnabled { get; set; }
         public DateTime CreatedTime { get; set; }
+        
+        // 캘리브레이션 정보
+        public double CalibrationPixelsPerMeter { get; set; } = 100.0;
+        public double CalibrationFrameWidth { get; set; } = 640.0;
+        public double CalibrationFrameHeight { get; set; } = 480.0;
     }
     
     // 사람 추적 기록

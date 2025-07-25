@@ -61,6 +61,13 @@ namespace SafetyVisionMonitor.Models
         [ObservableProperty]
         private bool autoWhiteBalance = true;
         
+        // 캘리브레이션 정보
+        [ObservableProperty]
+        private double calibrationPixelsPerMeter = 100.0;
+        
+        [ObservableProperty]
+        private bool isCalibrated = false;
+        
         public string Resolution => $"{Width}×{Height}";
         public string Status => !IsEnabled ? "미사용" : (IsConnected ? "연결됨" : "연결 안됨");
     }

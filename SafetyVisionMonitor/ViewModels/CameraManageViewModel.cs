@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -9,9 +10,12 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
+using Point = OpenCvSharp.Point;
+using SafetyVisionMonitor.Helpers;
 using SafetyVisionMonitor.Models;
 using SafetyVisionMonitor.Services;
 using SafetyVisionMonitor.Views;
+using SafetyVisionMonitor.ViewModels.Base;
 
 namespace SafetyVisionMonitor.ViewModels
 {
@@ -19,6 +23,10 @@ namespace SafetyVisionMonitor.ViewModels
     {
         private readonly DispatcherTimer _frameTimer;
         private readonly string _captureDirectory;
+        
+        // 카메라별 3D 구역 데이터 - Dictionary로 카메라별 관리
+        private readonly Dictionary<string, ObservableCollection<ZoneVisualization>> _cameraWarningZones = new();
+        private readonly Dictionary<string, ObservableCollection<ZoneVisualization>> _cameraDangerZones = new();
         
         [ObservableProperty]
         private ObservableCollection<CameraItemViewModel> cameraItems;
@@ -75,6 +83,9 @@ namespace SafetyVisionMonitor.ViewModels
             App.CameraService.FrameReceivedForUI += OnFrameReceived;
             App.CameraService.ConnectionChanged += OnConnectionChanged;
             
+            // 구역 업데이트 이벤트 구독
+            App.AppData.ZoneUpdated += OnZoneUpdated;
+            
             // 저장된 카메라 설정 불러오기
             try
             {
@@ -101,6 +112,9 @@ namespace SafetyVisionMonitor.ViewModels
             
             // 활성 카메라 카운트 업데이트
             UpdateActiveCameraCount();
+            
+            // 구역 데이터 로드
+            await LoadZoneOverlaysAsync();
         }
         
         public override void OnActivated()
@@ -122,6 +136,7 @@ namespace SafetyVisionMonitor.ViewModels
             // 이벤트 구독 해제
             App.CameraService.FrameReceivedForUI -= OnFrameReceived;
             App.CameraService.ConnectionChanged -= OnConnectionChanged;
+            App.AppData.ZoneUpdated -= OnZoneUpdated;
             
             _frameTimer.Stop();
         }
@@ -150,7 +165,14 @@ namespace SafetyVisionMonitor.ViewModels
                     {
                         if (frame != null && !frame.Empty())
                         {
-                            var bitmap = frame.ToBitmapSource();
+                            // 프레임에 구역 오버레이 그리기
+                            var frameWithZones = DrawZoneOverlaysOnFrame(frame, e.CameraId);
+                            
+                            // UI 스레드에서 BitmapSource 변환
+                            var bitmap = ImageConverter.MatToBitmapSource(frameWithZones);
+                            
+                            // 그려진 프레임 해제
+                            frameWithZones.Dispose();
                             
                             if (bitmap != null)
                             {
@@ -165,10 +187,14 @@ namespace SafetyVisionMonitor.ViewModels
                                 cameraItem.FrameCount++;
                                 cameraItem.StatusText = $"프레임: {cameraItem.FrameCount}";
                                 
-                                // 프레임 저장 로직 (선택적)
+                                // 프레임 저장 로직 (선택적) - 구역이 그려진 프레임을 저장
                                 if (IsFrameSavingEnabled && ShouldSaveFrame(cameraItem))
                                 {
-                                    SaveFrameAsJpg(frame, e.CameraId, cameraItem.FrameCount);
+                                    // 원본 프레임 대신 구역이 그려진 프레임을 저장
+                                    using (var finalFrame = DrawZoneOverlaysOnFrame(frame, e.CameraId))
+                                    {
+                                        SaveFrameAsJpg(finalFrame, e.CameraId, cameraItem.FrameCount);
+                                    }
                                 }
                             }
                         }
@@ -263,6 +289,42 @@ namespace SafetyVisionMonitor.ViewModels
             }
         }
         
+        private void OnZoneUpdated(object? sender, Services.ZoneUpdateEventArgs e)
+        {
+            App.Current.Dispatcher.Invoke(() =>
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraManage received zone update: {e.Zone.Name}, IsEnabled={e.IsEnabled}");
+                
+                // 해당 카메라의 구역을 찾아서 업데이트
+                var cameraId = e.Zone.CameraId;
+                
+                // 경고 구역 업데이트
+                if (_cameraWarningZones.ContainsKey(cameraId))
+                {
+                    var warningZone = _cameraWarningZones[cameraId].FirstOrDefault(z => z.ZoneId == e.ZoneId);
+                    if (warningZone != null)
+                    {
+                        warningZone.IsEnabled = e.IsEnabled;
+                        warningZone.Opacity = e.IsEnabled ? e.Zone.Opacity : 0.05;
+                        System.Diagnostics.Debug.WriteLine($"CameraManage: Updated warning zone visualization: {warningZone.Name} for camera {cameraId}");
+                        return;
+                    }
+                }
+                
+                // 위험 구역 업데이트
+                if (_cameraDangerZones.ContainsKey(cameraId))
+                {
+                    var dangerZone = _cameraDangerZones[cameraId].FirstOrDefault(z => z.ZoneId == e.ZoneId);
+                    if (dangerZone != null)
+                    {
+                        dangerZone.IsEnabled = e.IsEnabled;
+                        dangerZone.Opacity = e.IsEnabled ? e.Zone.Opacity : 0.05;
+                        System.Diagnostics.Debug.WriteLine($"CameraManage: Updated danger zone visualization: {dangerZone.Name} for camera {cameraId}");
+                    }
+                }
+            });
+        }
+        
         private void CheckConnectionStatus(object? sender, EventArgs e)
         {
             // 연결되지 않은 카메라의 상태 텍스트만 업데이트 (CurrentFrame은 유지)
@@ -289,20 +351,34 @@ namespace SafetyVisionMonitor.ViewModels
         
                 if (dialog.ShowDialog() == true)
                 {
-                    // 설정 적용
-                    dialog.ViewModel.ApplyTo(item.Camera);
-            
-                    // 연결된 카메라인 경우 재연결
-                    if (item.Camera.IsConnected)
+                    try
                     {
-                        App.CameraService.DisconnectCamera(item.Camera.Id);
-                        await App.CameraService.ConnectCamera(item.Camera);
+                        // 설정 적용
+                        dialog.ViewModel.ApplyTo(item.Camera);
+                
+                        // 연결된 카메라인 경우 재연결
+                        if (item.Camera.IsConnected && item.Camera.IsEnabled)
+                        {
+                            App.CameraService.DisconnectCamera(item.Camera.Id);
+                            await App.CameraService.ConnectCamera(item.Camera);
+                        }
+                        else if (item.Camera.IsConnected && !item.Camera.IsEnabled)
+                        {
+                            // 카메라가 비활성화되면 연결 해제
+                            App.CameraService.DisconnectCamera(item.Camera.Id);
+                            item.Camera.IsConnected = false;
+                        }
+                
+                        // 설정 저장 (DatabaseService 사용)
+                        await SaveCameraConfigurations();
+                
+                        StatusMessage = $"{item.Camera.Name} 설정이 업데이트되었습니다.";
                     }
-            
-                    // 설정 저장 (DatabaseService 사용)
-                    await SaveCameraConfigurations();
-            
-                    StatusMessage = $"{item.Camera.Name} 설정이 업데이트되었습니다.";
+                    catch (Exception ex)
+                    {
+                        StatusMessage = $"오류: {ex.Message}";
+                        System.Diagnostics.Debug.WriteLine($"Camera configuration error: {ex}");
+                    }
                 }
             }
         }
@@ -388,6 +464,175 @@ namespace SafetyVisionMonitor.ViewModels
                         IsLoading = false;
                     }
                 }
+            }
+        }
+        
+        private async Task LoadZoneOverlaysAsync()
+        {
+            try
+            {
+                var zones = await App.DatabaseService.LoadZone3DConfigsAsync();
+                
+                // 카메라별 구역 저장소 초기화
+                _cameraWarningZones.Clear();
+                _cameraDangerZones.Clear();
+                
+                // 각 카메라별로 구역 분류
+                foreach (var zone in zones)
+                {
+                    if (zone.FloorPoints.Count >= 3)
+                    {
+                        var visualization = new ZoneVisualization
+                        {
+                            ZoneId = zone.Id,
+                            Name = zone.Name,
+                            ZoneColor = zone.DisplayColor,
+                            Opacity = zone.IsEnabled ? zone.Opacity : 0.05,
+                            IsSelected = false,
+                            IsEnabled = zone.IsEnabled
+                        };
+                        
+                        // 3D 좌표를 상대 좌표(0~1)로 변환
+                        var originalFrameWidth = zone.CalibrationFrameWidth;
+                        var originalFrameHeight = zone.CalibrationFrameHeight;
+                        
+                        foreach (var worldPoint in zone.FloorPoints)
+                        {
+                            // 먼저 원본 프레임 크기로 화면 좌표 계산
+                            var screenPoint = CoordinateTransformService.WorldToScreen(worldPoint, 
+                                originalFrameWidth, originalFrameHeight, zone.CalibrationPixelsPerMeter);
+                                
+                            // 상대 좌표로 변환 (0~1 범위)
+                            var relativeX = screenPoint.X / originalFrameWidth;
+                            var relativeY = screenPoint.Y / originalFrameHeight;
+                            var relativePoint = new System.Windows.Point(relativeX, relativeY);
+                            
+                            visualization.AddRelativePoint(relativePoint);
+                        }
+                        
+                        // 다각형 닫기
+                        if (zone.FloorPoints.Count >= 3)
+                        {
+                            var firstScreenPoint = CoordinateTransformService.WorldToScreen(zone.FloorPoints[0], 
+                                originalFrameWidth, originalFrameHeight, zone.CalibrationPixelsPerMeter);
+                            var relativeX = firstScreenPoint.X / originalFrameWidth;
+                            var relativeY = firstScreenPoint.Y / originalFrameHeight;
+                            visualization.AddRelativePoint(new System.Windows.Point(relativeX, relativeY));
+                        }
+                        
+                        // 카메라별로 구역 저장
+                        if (zone.Type == ZoneType.Warning)
+                        {
+                            if (!_cameraWarningZones.ContainsKey(zone.CameraId))
+                                _cameraWarningZones[zone.CameraId] = new ObservableCollection<ZoneVisualization>();
+                            _cameraWarningZones[zone.CameraId].Add(visualization);
+                        }
+                        else
+                        {
+                            if (!_cameraDangerZones.ContainsKey(zone.CameraId))
+                                _cameraDangerZones[zone.CameraId] = new ObservableCollection<ZoneVisualization>();
+                            _cameraDangerZones[zone.CameraId].Add(visualization);
+                        }
+                    }
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"CameraManage: Loaded zones for {_cameraWarningZones.Count + _cameraDangerZones.Count} cameras");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraManage: Zone overlay load error: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// OpenCV를 사용하여 프레임에 구역 오버레이를 직접 그립니다
+        /// </summary>
+        private Mat DrawZoneOverlaysOnFrame(Mat originalFrame, string cameraId)
+        {
+            if (originalFrame == null || originalFrame.Empty())
+                return originalFrame;
+            
+            // 원본 프레임 복사
+            var frameWithZones = originalFrame.Clone();
+            
+            try
+            {
+                var frameWidth = frameWithZones.Width;
+                var frameHeight = frameWithZones.Height;
+                
+                // 경고 구역 그리기 (주황색)
+                if (_cameraWarningZones.ContainsKey(cameraId))
+                {
+                    foreach (var zone in _cameraWarningZones[cameraId])
+                    {
+                        if (zone.IsEnabled && zone.RelativePoints.Count >= 3)
+                        {
+                            DrawZoneOnFrame(frameWithZones, zone, frameWidth, frameHeight, new Scalar(0, 165, 255)); // Orange
+                        }
+                    }
+                }
+                
+                // 위험 구역 그리기 (빨간색)
+                if (_cameraDangerZones.ContainsKey(cameraId))
+                {
+                    foreach (var zone in _cameraDangerZones[cameraId])
+                    {
+                        if (zone.IsEnabled && zone.RelativePoints.Count >= 3)
+                        {
+                            DrawZoneOnFrame(frameWithZones, zone, frameWidth, frameHeight, new Scalar(0, 0, 255)); // Red
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraManage: Zone drawing error: {ex.Message}");
+            }
+            
+            return frameWithZones;
+        }
+        
+        /// <summary>
+        /// 개별 구역을 프레임에 그립니다
+        /// </summary>
+        private void DrawZoneOnFrame(Mat frame, ZoneVisualization zone, int frameWidth, int frameHeight, Scalar color)
+        {
+            try
+            {
+                // 상대 좌표(0~1)를 픽셀 좌표로 변환
+                var points = new List<Point>();
+                
+                foreach (var relativePoint in zone.RelativePoints)
+                {
+                    var pixelX = (int)(relativePoint.X * frameWidth);
+                    var pixelY = (int)(relativePoint.Y * frameHeight);
+                    
+                    // 프레임 경계 내로 제한
+                    pixelX = Math.Max(0, Math.Min(frameWidth - 1, pixelX));
+                    pixelY = Math.Max(0, Math.Min(frameHeight - 1, pixelY));
+                    
+                    points.Add(new Point(pixelX, pixelY));
+                }
+                
+                if (points.Count >= 3)
+                {
+                    // 다각형으로 채우기 (투명도 적용)
+                    var overlay = frame.Clone();
+                    Cv2.FillPoly(overlay, new Point[][] { points.ToArray() }, color);
+                    
+                    // 투명도 적용하여 원본과 합성
+                    var alpha = zone.Opacity;
+                    Cv2.AddWeighted(frame, 1.0 - alpha, overlay, alpha, 0, frame);
+                    
+                    // 구역 경계선 그리기
+                    Cv2.Polylines(frame, new Point[][] { points.ToArray() }, true, color, 2);
+                    
+                    overlay.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraManage: Individual zone drawing error for {zone.Name}: {ex.Message}");
             }
         }
     }

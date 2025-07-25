@@ -41,6 +41,10 @@
                         
                         <Button Content="직접 캡처(2)" 
                                 Command="{Binding TestCameraDirectly}"
+                                Margin="0,0,5,0"/>
+                        
+                        <Button Content="구역 새로고침" 
+                                Command="{Binding RefreshZoneOverlaysCommand}"
                                 Margin="0,0,15,0"/>
                         
                         <CheckBox Content="경고구역 표시" 
@@ -101,12 +105,7 @@
                                              Visibility="{Binding IsConnected, 
                                                         Converter={StaticResource InverseBoolToVisibilityConverter}}"/>
                                     
-                                    <!-- 3D 영역 오버레이 (추후 구현) -->
-                                    <!-- <Canvas Visibility="{Binding DataContext.ShowWarningZones,  -->
-                                    <!--                    RelativeSource={RelativeSource AncestorType=UserControl},  -->
-                                    <!--                    Converter={StaticResource BooleanToVisibilityConverter}}"> -->
-                                    <!--     ~1~ 경고/위험 구역 그리기 @1@ -->
-                                    <!-- </Canvas> -->
+                                    <!-- 구역은 이제 OpenCV로 카메라 프레임에 직접 그려집니다 -->
                                 </Grid>
                                 
                                 <!-- 상태바 -->

@@ -30,7 +30,8 @@ namespace SafetyVisionMonitor.Services
             // 미사용 카메라는 연결할 수 없음
             if (!camera.IsEnabled)
             {
-                throw new InvalidOperationException($"카메라 '{camera.Name}'은(는) 미사용 상태입니다. 먼저 사용함으로 변경해주세요.");
+                var cameraName = string.IsNullOrEmpty(camera.Name) ? camera.Id : camera.Name;
+                throw new InvalidOperationException($"카메라 '{cameraName}'은(는) 미사용 상태입니다. 먼저 사용함으로 변경해주세요.");
             }
             
             if (_connections.Count >= _maxCameras)
@@ -105,7 +106,7 @@ namespace SafetyVisionMonitor.Services
         
         private void OnFrameReceived(object? sender, CameraFrameEventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine($"CameraService: Frame received from {e.CameraId}");
+            //System.Diagnostics.Debug.WriteLine($"CameraService: Frame received from {e.CameraId}");
             
             // 미사용 카메라의 프레임은 무시
             if (sender is CameraConnection connection && !connection.Camera.IsEnabled)
@@ -232,7 +233,7 @@ namespace SafetyVisionMonitor.Services
             Cv2.Resize(originalFrame, resizedFrame, new OpenCvSharp.Size(targetWidth, targetHeight), 
                       interpolation: InterpolationFlags.Linear);
             
-            System.Diagnostics.Debug.WriteLine($"CameraService: UI frame resized: {originalFrame.Width}x{originalFrame.Height} → {targetWidth}x{targetHeight}");
+            //System.Diagnostics.Debug.WriteLine($"CameraService: UI frame resized: {originalFrame.Width}x{originalFrame.Height} → {targetWidth}x{targetHeight}");
             
             return resizedFrame;
         }
@@ -767,10 +768,10 @@ namespace SafetyVisionMonitor.Services
                         FrameReceived?.Invoke(this, new CameraFrameEventArgs(Camera.Id, frame.Clone()));
                         frameCount++;
                 
-                        if (frameCount % 30 == 0) // 30프레임마다 로그
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Camera {Camera.Id}: {frameCount} frames processed");
-                        }
+                        // if (frameCount % 30 == 0) // 30프레임마다 로그
+                        // {
+                        //     System.Diagnostics.Debug.WriteLine($"Camera {Camera.Id}: {frameCount} frames processed");
+                        // }
                     }
             
                     Thread.Sleep(1000 / (int)Camera.Fps);
@@ -793,10 +794,15 @@ namespace SafetyVisionMonitor.Services
     
             // 캡처 스레드 종료 대기
             _cancellationToken.Cancel();
-            if (_captureThread?.Join(2000) == false)
+            
+            // 스레드가 종료될 때까지 최대 3초 대기
+            if (_captureThread?.IsAlive == true)
             {
-                // 강제 종료
-                _captureThread.Abort();
+                if (!_captureThread.Join(3000))
+                {
+                    // 타임아웃 시 로그만 남기고 계속 진행
+                    System.Diagnostics.Debug.WriteLine($"Warning: Camera {Camera.Id} capture thread did not terminate within timeout");
+                }
             }
     
             // 카메라 해제

@@ -140,13 +140,12 @@
                                                 </ToggleButton.Style>
                                             </ToggleButton>
                                             
-                                            <syncfusion:ButtonAdv Content="설정" 
+                                            <syncfusion:ButtonAdv Label="설정" 
                                                                 Command="{Binding DataContext.ConfigureCameraCommand, 
                                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                 CommandParameter="{Binding Index}"
                                                                 Margin="0,0,5,0"
-                                                                SizeMode="Small"
-                                                                IsEnabled="{Binding Camera.IsEnabled, Mode=OneWay}"/>
+                                                                SizeMode="Small"/>
                                             
                                             <syncfusion:ButtonAdv 
                                                 Content="{Binding Camera.IsConnected, Mode=OneWay,

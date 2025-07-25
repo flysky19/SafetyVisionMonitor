@@ -10,6 +10,19 @@ namespace SafetyVisionMonitor.ViewModels
 {
     public partial class CameraConfigDialogViewModel : ObservableObject
     {
+        private static class CameraDefaults
+        {
+            public const double Brightness = 128.0;
+            public const double Contrast = 32.0;
+            public const double Saturation = 64.0;
+            public const double Exposure = -1.0;
+            public const double Gain = 0.0;
+            public const double Hue = 0.0;
+            public const double Gamma = 1.0;
+            public const double Sharpness = 0.0;
+            public const bool AutoExposure = true;
+            public const bool AutoWhiteBalance = true;
+        }
         [ObservableProperty]
         private Camera camera;
         
@@ -32,27 +45,7 @@ namespace SafetyVisionMonitor.ViewModels
             _originalCamera = camera;
             
             // 원본을 직접 수정하지 않도록 복사본 생성
-            Camera = new Camera
-            {
-                Id = camera.Id,
-                Name = camera.Name,
-                ConnectionString = camera.ConnectionString,
-                Type = camera.Type,
-                Width = camera.Width,
-                Height = camera.Height,
-                Fps = camera.Fps,
-                IsConnected = camera.IsConnected,
-                Brightness = camera.Brightness,
-                Contrast = camera.Contrast,
-                Saturation = camera.Saturation,
-                Exposure = camera.Exposure,
-                Gain = camera.Gain,
-                Hue = camera.Hue,
-                Gamma = camera.Gamma,
-                Sharpness = camera.Sharpness,
-                AutoExposure = camera.AutoExposure,
-                AutoWhiteBalance = camera.AutoWhiteBalance
-            };
+            Camera = CreateCameraCopy(camera);
             
             UpdateConnectionHint();
         }
@@ -79,6 +72,13 @@ namespace SafetyVisionMonitor.ViewModels
         [RelayCommand]
         private async Task TestConnection()
         {
+            if (!ValidateCameraConfig())
+            {
+                TestResult = "✗ 카메라 설정이 유효하지 않습니다.";
+                TestResultColor = Brushes.Red;
+                return;
+            }
+            
             TestResult = "연결 테스트 중...";
             TestResultColor = Brushes.Yellow;
             
@@ -141,19 +141,28 @@ namespace SafetyVisionMonitor.ViewModels
         [RelayCommand]
         private async Task SaveConfig()
         {
+            if (!ValidateCameraConfig())
+            {
+                TestResult = "✗ 저장할 수 없습니다. 카메라 설정을 확인하세요.";
+                TestResultColor = Brushes.Red;
+                return;
+            }
+            
             try
             {
-                // 현재 카메라 설정을 DB에 저장
+                // 현재 카메라 설정을 DB에 저장 (효율적인 방식으로 개선 필요)
                 var cameras = await App.DatabaseService.LoadCameraConfigsAsync();
                 
                 // 해당 카메라 찾아서 업데이트
                 var existingCamera = cameras.FirstOrDefault(c => c.Id == Camera.Id);
                 if (existingCamera != null)
                 {
-                    cameras.Remove(existingCamera);
+                    CopyPropertiesTo(existingCamera);
                 }
-                
-                cameras.Add(Camera);
+                else
+                {
+                    cameras.Add(CreateCameraCopy(Camera));
+                }
                 
                 // DB에 저장
                 await App.DatabaseService.SaveCameraConfigsAsync(cameras);
@@ -180,22 +189,9 @@ namespace SafetyVisionMonitor.ViewModels
                 if (savedCamera != null)
                 {
                     // 현재 ID는 유지하고 나머지 속성만 복사
-                    Camera.Name = savedCamera.Name;
-                    Camera.ConnectionString = savedCamera.ConnectionString;
-                    Camera.Type = savedCamera.Type;
-                    Camera.Width = savedCamera.Width;
-                    Camera.Height = savedCamera.Height;
-                    Camera.Fps = savedCamera.Fps;
-                    Camera.Brightness = savedCamera.Brightness;
-                    Camera.Contrast = savedCamera.Contrast;
-                    Camera.Saturation = savedCamera.Saturation;
-                    Camera.Exposure = savedCamera.Exposure;
-                    Camera.Gain = savedCamera.Gain;
-                    Camera.Hue = savedCamera.Hue;
-                    Camera.Gamma = savedCamera.Gamma;
-                    Camera.Sharpness = savedCamera.Sharpness;
-                    Camera.AutoExposure = savedCamera.AutoExposure;
-                    Camera.AutoWhiteBalance = savedCamera.AutoWhiteBalance;
+                    var originalId = Camera.Id;
+                    Camera = CreateCameraCopy(savedCamera);
+                    Camera.Id = originalId;
                     
                     UpdateConnectionHint();
                     
@@ -218,16 +214,16 @@ namespace SafetyVisionMonitor.ViewModels
         [RelayCommand]
         private void ResetImageSettings()
         {
-            Camera.Brightness = 128.0;
-            Camera.Contrast = 32.0;
-            Camera.Saturation = 64.0;
-            Camera.Exposure = -1.0;
-            Camera.Gain = 0.0;
-            Camera.Hue = 0.0;
-            Camera.Gamma = 1.0;
-            Camera.Sharpness = 0.0;
-            Camera.AutoExposure = true;
-            Camera.AutoWhiteBalance = true;
+            Camera.Brightness = CameraDefaults.Brightness;
+            Camera.Contrast = CameraDefaults.Contrast;
+            Camera.Saturation = CameraDefaults.Saturation;
+            Camera.Exposure = CameraDefaults.Exposure;
+            Camera.Gain = CameraDefaults.Gain;
+            Camera.Hue = CameraDefaults.Hue;
+            Camera.Gamma = CameraDefaults.Gamma;
+            Camera.Sharpness = CameraDefaults.Sharpness;
+            Camera.AutoExposure = CameraDefaults.AutoExposure;
+            Camera.AutoWhiteBalance = CameraDefaults.AutoWhiteBalance;
             
             TestResult = "✓ 이미지 설정이 기본값으로 재설정되었습니다.";
             TestResultColor = Brushes.LightGreen;
@@ -259,6 +255,37 @@ namespace SafetyVisionMonitor.ViewModels
         
         public void ApplyTo(Camera target)
         {
+            CopyPropertiesTo(target);
+        }
+        
+        private static Camera CreateCameraCopy(Camera source)
+        {
+            return new Camera
+            {
+                Id = source.Id,
+                Name = source.Name,
+                ConnectionString = source.ConnectionString,
+                Type = source.Type,
+                Width = source.Width,
+                Height = source.Height,
+                Fps = source.Fps,
+                IsConnected = source.IsConnected,
+                Brightness = source.Brightness,
+                Contrast = source.Contrast,
+                Saturation = source.Saturation,
+                Exposure = source.Exposure,
+                Gain = source.Gain,
+                Hue = source.Hue,
+                Gamma = source.Gamma,
+                Sharpness = source.Sharpness,
+                AutoExposure = source.AutoExposure,
+                AutoWhiteBalance = source.AutoWhiteBalance,
+                IsEnabled = source.IsEnabled
+            };
+        }
+        
+        private void CopyPropertiesTo(Camera target)
+        {
             target.Name = Camera.Name;
             target.ConnectionString = Camera.ConnectionString;
             target.Type = Camera.Type;
@@ -275,6 +302,25 @@ namespace SafetyVisionMonitor.ViewModels
             target.Sharpness = Camera.Sharpness;
             target.AutoExposure = Camera.AutoExposure;
             target.AutoWhiteBalance = Camera.AutoWhiteBalance;
+            target.IsEnabled = Camera.IsEnabled;
+            target.IsConnected = Camera.IsConnected;
+        }
+        
+        private bool ValidateCameraConfig()
+        {
+            if (string.IsNullOrWhiteSpace(Camera?.Name))
+                return false;
+                
+            if (string.IsNullOrWhiteSpace(Camera.ConnectionString))
+                return false;
+                
+            if (Camera.Width <= 0 || Camera.Height <= 0)
+                return false;
+                
+            if (Camera.Fps <= 0)
+                return false;
+                
+            return true;
         }
     }
 }

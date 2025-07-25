@@ -22,6 +22,7 @@
             <converters:InverseNullToVisibilityConverter x:Key="InverseNullToVisibilityConverter"/>
             <converters:BoolToStatusTextConverter x:Key="BoolToStatusTextConverter"/>
             <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
+            <converters:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
             <converters:EnumBooleanConverter x:Key="EnumBooleanConverter"/>
             <converters:CountToBoolConverter x:Key="CountToBoolConverter"/>
             <converters:ColorToBrushConverter x:Key="ColorToBrushConverter"/>

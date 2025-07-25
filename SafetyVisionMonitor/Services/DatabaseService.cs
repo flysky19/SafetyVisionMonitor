@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using SafetyVisionMonitor.Database;
 using SafetyVisionMonitor.Models;
+using System.Text.Json;
+using System.Windows.Media;
 
 namespace SafetyVisionMonitor.Services
 {
@@ -105,6 +107,8 @@ namespace SafetyVisionMonitor.Services
                 existing.Height = camera.Height;
                 existing.Fps = camera.Fps;
                 existing.IsEnabled = camera.IsEnabled;
+                existing.CalibrationPixelsPerMeter = camera.CalibrationPixelsPerMeter;
+                existing.IsCalibrated = camera.IsCalibrated;
                 existing.LastModified = DateTime.Now;
             }
             else
@@ -120,6 +124,8 @@ namespace SafetyVisionMonitor.Services
                     Height = camera.Height,
                     Fps = camera.Fps,
                     IsEnabled = camera.IsEnabled,
+                    CalibrationPixelsPerMeter = camera.CalibrationPixelsPerMeter,
+                    IsCalibrated = camera.IsCalibrated,
                     LastModified = DateTime.Now
                 });
             }
@@ -143,7 +149,9 @@ namespace SafetyVisionMonitor.Services
                 Width = config.Width,
                 Height = config.Height,
                 Fps = config.Fps,
-                IsEnabled = config.IsEnabled
+                IsEnabled = config.IsEnabled,
+                CalibrationPixelsPerMeter = config.CalibrationPixelsPerMeter,
+                IsCalibrated = config.IsCalibrated
             }).ToList();
         }
         
@@ -177,6 +185,196 @@ namespace SafetyVisionMonitor.Services
             context.PersonTrackingRecords.RemoveRange(oldTracking);
             
             await context.SaveChangesAsync();
+        }
+        
+        // 3D 구역 저장
+        public async Task SaveZone3DConfigsAsync(List<Zone3D> zones)
+        {
+            using var context = new AppDbContext();
+            
+            foreach (var zone in zones)
+            {
+                // 기존 구역 찾기
+                var existing = await context.Zone3DConfigs
+                    .FirstOrDefaultAsync(z => z.ZoneId == zone.Id);
+                
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Saving zone {zone.Name}, Zone IsEnabled={zone.IsEnabled}");
+                
+                var config = new Zone3DConfig
+                {
+                    ZoneId = zone.Id,
+                    Name = zone.Name,
+                    CameraId = zone.CameraId,
+                    Type = zone.Type.ToString(),
+                    VerticesJson = JsonSerializer.Serialize(new
+                    {
+                        FloorPoints = zone.FloorPoints.Select(p => new { X = p.X, Y = p.Y }).ToList(),
+                        Height = zone.Height
+                    }),
+                    Color = ColorToHex(zone.DisplayColor),
+                    Opacity = zone.Opacity,
+                    IsEnabled = zone.IsEnabled,
+                    CreatedTime = zone.CreatedDate,
+                    CalibrationPixelsPerMeter = zone.CalibrationPixelsPerMeter,
+                    CalibrationFrameWidth = zone.CalibrationFrameWidth,
+                    CalibrationFrameHeight = zone.CalibrationFrameHeight
+                };
+                
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Config IsEnabled will be saved as {config.IsEnabled}");
+                
+                if (existing != null)
+                {
+                    // 업데이트
+                    existing.Name = config.Name;
+                    existing.CameraId = config.CameraId;
+                    existing.Type = config.Type;
+                    existing.VerticesJson = config.VerticesJson;
+                    existing.Color = config.Color;
+                    existing.Opacity = config.Opacity;
+                    existing.IsEnabled = config.IsEnabled;
+                    existing.CalibrationPixelsPerMeter = config.CalibrationPixelsPerMeter;
+                    existing.CalibrationFrameWidth = config.CalibrationFrameWidth;
+                    existing.CalibrationFrameHeight = config.CalibrationFrameHeight;
+                }
+                else
+                {
+                    // 새로 추가
+                    context.Zone3DConfigs.Add(config);
+                }
+            }
+            
+            await context.SaveChangesAsync();
+        }
+        
+        // 3D 구역 로드
+        public async Task<List<Zone3D>> LoadZone3DConfigsAsync(string? cameraId = null)
+        {
+            using var context = new AppDbContext();
+            
+            var query = context.Zone3DConfigs.AsQueryable();
+            
+            if (!string.IsNullOrEmpty(cameraId))
+            {
+                query = query.Where(z => z.CameraId == cameraId);
+            }
+            
+            var configs = await query.ToListAsync();
+            System.Diagnostics.Debug.WriteLine($"DatabaseService: Found {configs.Count} zone configs in database");
+            
+            var zones = new List<Zone3D>();
+            
+            foreach (var config in configs)
+            {
+                var zone = new Zone3D();
+                
+                // 로딩 플래그 설정 (자동 저장 방지)
+                zone.IsLoading = true;
+                
+                // 먼저 이름 설정 (로깅을 위해)
+                zone.Name = config.Name;
+                
+                // 그 다음 다른 속성들 설정
+                zone.Id = config.ZoneId;
+                zone.CameraId = config.CameraId;
+                zone.Type = Enum.Parse<ZoneType>(config.Type);
+                zone.DisplayColor = HexToColor(config.Color);
+                zone.Opacity = config.Opacity;
+                zone.CreatedDate = config.CreatedTime;
+                zone.CalibrationPixelsPerMeter = config.CalibrationPixelsPerMeter;
+                zone.CalibrationFrameWidth = config.CalibrationFrameWidth;
+                zone.CalibrationFrameHeight = config.CalibrationFrameHeight;
+                
+                // 마지막에 IsEnabled 설정
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: About to set IsEnabled={config.IsEnabled} for zone {config.Name}");
+                
+                // 임시: 모든 구역을 활성화 상태로 강제 설정 (디버깅용)
+                // zone.IsEnabled = true; // 이 줄의 주석을 해제하면 모든 구역이 활성화됩니다
+                
+                zone.IsEnabled = config.IsEnabled;
+                
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Loading zone {config.Name}, DB IsEnabled={config.IsEnabled}");
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: After zone creation, Zone IsEnabled={zone.IsEnabled}");
+                
+                // JSON에서 좌표 복원
+                if (!string.IsNullOrEmpty(config.VerticesJson))
+                {
+                    try
+                    {
+                        var data = JsonSerializer.Deserialize<JsonElement>(config.VerticesJson);
+                        
+                        if (data.TryGetProperty("Height", out var heightElement))
+                        {
+                            zone.Height = heightElement.GetDouble();
+                        }
+                        
+                        if (data.TryGetProperty("FloorPoints", out var pointsElement))
+                        {
+                            foreach (var pointElement in pointsElement.EnumerateArray())
+                            {
+                                if (pointElement.TryGetProperty("X", out var xElement) &&
+                                    pointElement.TryGetProperty("Y", out var yElement))
+                                {
+                                    zone.FloorPoints.Add(new Point2D(
+                                        xElement.GetDouble(),
+                                        yElement.GetDouble()
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    catch (JsonException)
+                    {
+                        // JSON 파싱 실패 시 기본값 유지
+                    }
+                }
+                
+                // 로딩 완료, 이제 자동 저장 활성화
+                zone.IsLoading = false;
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Zone {config.Name} loading completed, IsLoading=false");
+                
+                zones.Add(zone);
+            }
+            
+            return zones;
+        }
+        
+        // 3D 구역 삭제
+        public async Task DeleteZone3DConfigAsync(string zoneId)
+        {
+            using var context = new AppDbContext();
+            
+            var existing = await context.Zone3DConfigs
+                .FirstOrDefaultAsync(z => z.ZoneId == zoneId);
+                
+            if (existing != null)
+            {
+                context.Zone3DConfigs.Remove(existing);
+                await context.SaveChangesAsync();
+            }
+        }
+        
+        // 색상 변환 헬퍼 메소드
+        private static string ColorToHex(Color color)
+        {
+            return $"#{color.R:X2}{color.G:X2}{color.B:X2}";
+        }
+        
+        private static Color HexToColor(string hex)
+        {
+            if (string.IsNullOrEmpty(hex) || !hex.StartsWith("#") || hex.Length != 7)
+                return Colors.Red; // 기본색
+                
+            try
+            {
+                var r = Convert.ToByte(hex.Substring(1, 2), 16);
+                var g = Convert.ToByte(hex.Substring(3, 2), 16);
+                var b = Convert.ToByte(hex.Substring(5, 2), 16);
+                return Color.FromRgb(r, g, b);
+            }
+            catch
+            {
+                return Colors.Red; // 변환 실패 시 기본색
+            }
         }
     }
 }

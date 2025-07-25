@@ -17,11 +17,11 @@ namespace SafetyVisionMonitor.Helpers
             try
             {
                 // 원본 Mat 정보 로깅
-                System.Diagnostics.Debug.WriteLine(
-                    $"Converting Mat - Size: {mat.Width}x{mat.Height}, " +
-                    $"Channels: {mat.Channels()}, " +
-                    $"Type: {mat.Type()}, " +
-                    $"Depth: {mat.Depth()}");
+                // System.Diagnostics.Debug.WriteLine(
+                //     $"Converting Mat - Size: {mat.Width}x{mat.Height}, " +
+                //     $"Channels: {mat.Channels()}, " +
+                //     $"Type: {mat.Type()}, " +
+                //     $"Depth: {mat.Depth()}");
                 
                 // BGR24는 직접 변환 가능
                 if (mat.Channels() == 3 && mat.Depth() == MatType.CV_8U)
@@ -30,7 +30,7 @@ namespace SafetyVisionMonitor.Helpers
                     var bitmap = BitmapSourceConverter.ToBitmapSource(mat);
                     bitmap.Freeze();
                     
-                    System.Diagnostics.Debug.WriteLine($"Converted to: {bitmap.Format}");
+                    //System.Diagnostics.Debug.WriteLine($"Converted to: {bitmap.Format}");
                     return bitmap;
                 }
                 

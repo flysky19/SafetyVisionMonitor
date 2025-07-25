@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SafetyVisionMonitor.ViewModels.Base;
 
 namespace SafetyVisionMonitor.ViewModels
 {

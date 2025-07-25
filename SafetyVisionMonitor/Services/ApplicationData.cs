@@ -19,6 +19,12 @@ namespace SafetyVisionMonitor.Services
         // 3D 구역 설정
         public ObservableCollection<Zone3DConfig> Zones { get; }
         
+        // 구역 업데이트 이벤트
+        public event EventHandler<ZoneUpdateEventArgs>? ZoneUpdated;
+        
+        // 구역 시각화 업데이트 이벤트
+        public event EventHandler? ZoneVisualizationUpdateRequested;
+        
         // 최근 이벤트 (최근 100개만 메모리에 유지)
         public ObservableCollection<SafetyEvent> RecentEvents { get; }
         
@@ -160,6 +166,18 @@ namespace SafetyVisionMonitor.Services
                 var index = Cameras.IndexOf(existing);
                 Cameras[index] = camera;
             }
+        }
+        
+        // 구역 상태 업데이트 알림
+        public void NotifyZoneUpdated(Zone3D zone)
+        {
+            ZoneUpdated?.Invoke(this, new ZoneUpdateEventArgs(zone));
+        }
+        
+        // 구역 시각화 업데이트 요청
+        public void NotifyZoneVisualizationUpdate()
+        {
+            ZoneVisualizationUpdateRequested?.Invoke(this, EventArgs.Empty);
         }
         
         // 새 이벤트 추가

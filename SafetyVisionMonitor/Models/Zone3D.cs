@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -7,6 +8,14 @@ namespace SafetyVisionMonitor.Models
 {
     public partial class Zone3D : ObservableObject
     {
+        // 데이터베이스 로딩 중에는 자동 저장하지 않도록 하는 플래그
+        public bool IsLoading { get; set; } = false;
+        
+        public Zone3D()
+        {
+            System.Diagnostics.Debug.WriteLine($"Zone3D constructor called: Name will be '{Name}', Initial IsEnabled={IsEnabled}");
+        }
+        
         [ObservableProperty]
         private string id = Guid.NewGuid().ToString();
         
@@ -32,7 +41,7 @@ namespace SafetyVisionMonitor.Models
         private double opacity = 0.3;
         
         [ObservableProperty]
-        private bool isEnabled = true;
+        private bool isEnabled = false;
         
         [ObservableProperty]
         private DateTime createdDate = DateTime.Now;
@@ -42,6 +51,49 @@ namespace SafetyVisionMonitor.Models
         
         [ObservableProperty]
         private double height = 2.0; // 미터 단위
+        
+        // 캘리브레이션 정보 (좌표 변환에 필요)
+        [ObservableProperty]
+        private double calibrationPixelsPerMeter = 100.0;
+        
+        [ObservableProperty]
+        private double calibrationFrameWidth = 640.0;
+        
+        [ObservableProperty]
+        private double calibrationFrameHeight = 480.0;
+        
+        // IsEnabled 속성 변경 감지
+        partial void OnIsEnabledChanged(bool value)
+        {
+            System.Diagnostics.Debug.WriteLine($"Zone3D {Name}: IsEnabled changed to {value}, IsLoading={IsLoading}");
+            
+            // 로딩 중이 아닐 때만 자동 저장
+            if (!IsLoading)
+            {
+                // 변경사항을 즉시 데이터베이스에 저장하고 다른 ViewModel들에 알림
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await App.DatabaseService.SaveZone3DConfigsAsync(new List<Zone3D> { this });
+                        System.Diagnostics.Debug.WriteLine($"Zone {Name} IsEnabled={value} auto-saved to database");
+                        
+                        // UI 스레드에서 다른 ViewModel들에 구역 상태 변경 알림
+                        App.Current.Dispatcher.Invoke(() =>
+                        {
+                            App.AppData.NotifyZoneUpdated(this);
+                            
+                            // ZoneSetupViewModel의 시각화도 업데이트
+                            App.AppData.NotifyZoneVisualizationUpdate();
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to auto-save zone toggle: {ex.Message}");
+                    }
+                });
+            }
+        }
     }
     
     public enum ZoneType
