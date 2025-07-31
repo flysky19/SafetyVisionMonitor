@@ -49,6 +49,13 @@ namespace SafetyVisionMonitor.Models
             set => SetProperty(ref _isEnabled, value); 
         }
         
+        private double _height;
+        public double Height 
+        { 
+            get => _height; 
+            set => SetProperty(ref _height, value); 
+        }
+        
         // 상대 좌표 (0~1 범위)
         private ObservableCollection<Point> _relativePoints = new();
         public ObservableCollection<Point> RelativePoints 

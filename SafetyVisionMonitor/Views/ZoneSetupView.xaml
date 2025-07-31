@@ -4,8 +4,8 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
-             mc:Ignorable="d" 
-             d:DesignHeight="800" d:DesignWidth="1200"
+             xmlns:controls="clr-namespace:SafetyVisionMonitor.Controls"
+             mc:Ignorable="d" d:DesignHeight="800" d:DesignWidth="1200"
              Loaded="OnLoaded">
     
     <Grid Background="#1A1A1A" Margin="20">
@@ -85,20 +85,24 @@
             
             <!-- 카메라 영상 영역 -->
             <Border Grid.Row="1" Background="Black" BorderBrush="#444" BorderThickness="1">
-                <Grid>
+                <Grid x:Name="VideoContainer" SizeChanged="VideoContainer_SizeChanged">
+                    <!-- 카메라 이미지 (WriteableBitmap 바인딩) -->
                     <Image x:Name="CameraImage" 
-                         Source="{Binding CurrentCameraFrame}"
+                         Source="{Binding FrameBitmap}"
                          Stretch="Uniform"/>
                     
-                    <!-- 마우스 이벤트 캡처를 위한 투명 오버레이 -->
-                    <Canvas x:Name="MouseOverlay" 
-                          Background="Transparent"
-                          MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
-                          MouseMove="Canvas_MouseMove"
-                          MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
-                          Visibility="{Binding ShowZoneOverlay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <!-- 모든 시각적 요소는 OpenCV로 이미지에 직접 그려집니다 -->
-                    </Canvas>
+                    <!-- 구역 오버레이 캔버스 (벡터 렌더링) -->
+                    <controls:ZoneOverlayCanvas x:Name="ZoneOverlay"
+                          Zones="{Binding ZoneVisualizations}"
+                          ImageWidth="{Binding FrameWidth}"
+                          ImageHeight="{Binding FrameHeight}"
+                          IsDrawingMode="{Binding IsDrawingMode}"
+                          TempDrawingPoints="{Binding TempDrawingPoints}"
+                          NewZoneHeight="{Binding NewZoneHeight}"
+                          MouseLeftButtonDown="ZoneOverlay_MouseLeftButtonDown"
+                          MouseMove="ZoneOverlay_MouseMove"
+                          MouseLeftButtonUp="ZoneOverlay_MouseLeftButtonUp"
+                          Visibility="{Binding ShowZoneOverlay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     
                     <!-- 미연결 상태 표시 -->
                     <StackPanel VerticalAlignment="Center" 
@@ -150,33 +154,6 @@
                 </Grid>
             </Border>
             
-            <!-- 편집 모드 패널 -->
-            <Border Grid.Row="2" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,10,0,0"
-                    Visibility="{Binding IsEditMode, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    
-                    <TextBlock Grid.Column="0" 
-                             Text="{Binding EditingZone.Name, StringFormat='편집 중: {0}'}" 
-                             Foreground="LightBlue" 
-                             VerticalAlignment="Center" 
-                             FontWeight="Bold"/>
-                    
-                    <syncfusion:ButtonAdv Grid.Column="1" 
-                                        Label="편집 완료"
-                                        Command="{Binding FinishEditZoneCommand}"
-                                        Margin="0,0,5,0"/>
-                    
-                    <syncfusion:ButtonAdv Grid.Column="2" 
-                                        Label="취소"
-                                        Command="{Binding CancelEditZoneCommand}"
-                                        Background="#E74C3C"/>
-                </Grid>
-            </Border>
             
             <!-- 그리기 도구 패널 -->
             <Border Grid.Row="2" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,10,0,0"
@@ -201,7 +178,7 @@
                     </StackPanel>
                     
                     <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
-                        <TextBlock Text="높이(m):" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Text="높이(m) - 0.5 ~ 10.0 :" Foreground="White" VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <syncfusion:DoubleTextBox Value="{Binding NewZoneHeight}"
                                                    MinValue="0.5" MaxValue="10.0"
                                                    Width="80"/>
@@ -227,7 +204,11 @@
             
             <!-- 헤더 -->
             <Border Grid.Row="0" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,0,0,10">
-                <TextBlock Text="구역 목록" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                <StackPanel>
+                    <TextBlock Text="구역 목록" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                    <TextBlock Text="구역 수정이 필요하면 삭제 후 새로 그려주세요" 
+                             FontSize="11" Foreground="Gray" Margin="0,5,0,0"/>
+                </StackPanel>
             </Border>
             
             <!-- 구역 리스트 -->
@@ -265,11 +246,6 @@
                                 </TextBlock>
                                 
                                 <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Content="편집" 
-                                          Command="{Binding DataContext.StartEditZoneCommand,
-                                                   RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                          CommandParameter="{Binding}"
-                                          Margin="2" Padding="5,2"/>
                                     <Button Content="삭제" 
                                           Command="{Binding DataContext.DeleteZoneCommand,
                                                    RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -284,12 +260,12 @@
             </ListBox>
             
             <!-- 저장 버튼 -->
-            <syncfusion:ButtonAdv Grid.Row="2" 
-                                Label="설정 저장"
-                                Command="{Binding SaveZonesCommand}"
-                                HorizontalAlignment="Stretch"
-                                Margin="5,10,5,0"
-                                Height="35"/>
+            <!-- <syncfusion:ButtonAdv Grid.Row="2"  -->
+            <!--                     Label="설정 저장" -->
+            <!--                     Command="{Binding SaveZonesCommand}" -->
+            <!--                     HorizontalAlignment="Stretch" -->
+            <!--                     Margin="5,10,5,0" -->
+            <!--                     Height="35"/> -->
         </Grid>
     </Grid>
 </UserControl>

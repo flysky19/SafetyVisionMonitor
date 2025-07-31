@@ -91,18 +91,48 @@ namespace SafetyVisionMonitor.ViewModels
             {
                 var savedCameras = await App.DatabaseService.LoadCameraConfigsAsync();
         
-                for (int i = 0; i < Math.Min(savedCameras.Count, CameraItems.Count); i++)
+                // Camera ID로 정확히 매칭하여 로드
+                foreach (var item in CameraItems)
                 {
-                    var saved = savedCameras[i];
-                    var item = CameraItems[i];
-            
-                    item.Camera.Name = saved.Name;
-                    item.Camera.ConnectionString = saved.ConnectionString;
-                    item.Camera.Type = saved.Type;
-                    item.Camera.Width = saved.Width;
-                    item.Camera.Height = saved.Height;
-                    item.Camera.Fps = saved.Fps;
-                    item.Camera.IsEnabled = saved.IsEnabled;
+                    var saved = savedCameras.FirstOrDefault(c => c.Id == item.Camera.Id);
+                    if (saved != null)
+                    {
+                        item.Camera.Name = saved.Name;
+                        item.Camera.ConnectionString = saved.ConnectionString;
+                        item.Camera.Type = saved.Type;
+                        item.Camera.Width = saved.Width;
+                        item.Camera.Height = saved.Height;
+                        item.Camera.Fps = saved.Fps;
+                        item.Camera.IsEnabled = saved.IsEnabled;
+                        
+                        // 이미지 조정 설정도 로드
+                        item.Camera.Brightness = saved.Brightness;
+                        item.Camera.Contrast = saved.Contrast;
+                        item.Camera.Saturation = saved.Saturation;
+                        item.Camera.Exposure = saved.Exposure;
+                        item.Camera.Gain = saved.Gain;
+                        item.Camera.Hue = saved.Hue;
+                        item.Camera.Gamma = saved.Gamma;
+                        item.Camera.Sharpness = saved.Sharpness;
+                        item.Camera.AutoExposure = saved.AutoExposure;
+                        item.Camera.AutoWhiteBalance = saved.AutoWhiteBalance;
+                        
+                        System.Diagnostics.Debug.WriteLine($"Loaded camera {saved.Name}: Brightness={saved.Brightness}, Contrast={saved.Contrast}");
+                        
+                        // 이미 연결된 카메라인 경우 설정을 즉시 적용
+                        if (item.Camera.IsConnected)
+                        {
+                            try
+                            {
+                                App.CameraService.UpdateCameraSettings(item.Camera.Id, item.Camera);
+                                System.Diagnostics.Debug.WriteLine($"Applied loaded settings to connected camera {item.Camera.Name}");
+                            }
+                            catch (Exception settingsEx)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Failed to apply settings to {item.Camera.Name}: {settingsEx.Message}");
+                            }
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -360,7 +390,22 @@ namespace SafetyVisionMonitor.ViewModels
                         if (item.Camera.IsConnected && item.Camera.IsEnabled)
                         {
                             App.CameraService.DisconnectCamera(item.Camera.Id);
-                            await App.CameraService.ConnectCamera(item.Camera);
+                            var reconnectSuccess = await App.CameraService.ConnectCamera(item.Camera);
+                            
+                            if (reconnectSuccess)
+                            {
+                                // 재연결 후 이미지 조정 설정을 즉시 적용
+                                try
+                                {
+                                    await Task.Delay(500); // 카메라 안정화 대기
+                                    App.CameraService.UpdateCameraSettings(item.Camera.Id, item.Camera);
+                                    System.Diagnostics.Debug.WriteLine($"Applied updated settings after reconnection: {item.Camera.Name}");
+                                }
+                                catch (Exception settingsEx)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"Failed to apply settings after reconnection: {settingsEx.Message}");
+                                }
+                            }
                         }
                         else if (item.Camera.IsConnected && !item.Camera.IsEnabled)
                         {
@@ -453,6 +498,18 @@ namespace SafetyVisionMonitor.ViewModels
                         if (success)
                         {
                             StatusMessage = $"{item.Camera.Name} 연결됨";
+                            
+                            // 연결 후 이미지 조정 설정을 즉시 적용 ("변경사항 적용" 버튼과 동일)
+                            try
+                            {
+                                await Task.Delay(500); // 카메라 안정화 대기
+                                App.CameraService.UpdateCameraSettings(item.Camera.Id, item.Camera);
+                                System.Diagnostics.Debug.WriteLine($"Applied image settings after connection: {item.Camera.Name} (Brightness={item.Camera.Brightness})");
+                            }
+                            catch (Exception settingsEx)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Failed to apply settings after connection: {settingsEx.Message}");
+                            }
                         }
                         else
                         {

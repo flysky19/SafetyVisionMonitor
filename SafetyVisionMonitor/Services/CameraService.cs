@@ -347,16 +347,23 @@ namespace SafetyVisionMonitor.Services
                 // FPS 설정
                 _capture.Set(VideoCaptureProperties.Fps, Camera.Fps);
                 
+                // DB에서 로드된 카메라 설정 적용
+                System.Diagnostics.Debug.WriteLine($"Applying camera settings from DB: Brightness={Camera.Brightness}, Contrast={Camera.Contrast}, Saturation={Camera.Saturation}");
+                
                 // 자동 노출 설정
-                _capture.Set(VideoCaptureProperties.AutoExposure, 0.75); // 0.25 = manual, 0.75 = auto
+                _capture.Set(VideoCaptureProperties.AutoExposure, Camera.AutoExposure ? 0.75 : 0.25);
                 
-                // 명도 조정 (22.36%가 좀 어두운 편이므로)
-                _capture.Set(VideoCaptureProperties.Brightness, 150); // 기본값 보다 높게
-                //AutoAdjustBrightness();
-                //TestExposureModes();
+                // 이미지 조정 설정 (DB 값 사용)
+                _capture.Set(VideoCaptureProperties.Brightness, Camera.Brightness);
+                _capture.Set(VideoCaptureProperties.Contrast, Camera.Contrast);
+                _capture.Set(VideoCaptureProperties.Saturation, Camera.Saturation);
+                _capture.Set(VideoCaptureProperties.Exposure, Camera.Exposure);
+                _capture.Set(VideoCaptureProperties.Gain, Camera.Gain);
+                _capture.Set(VideoCaptureProperties.Hue, Camera.Hue);
+                _capture.Set(VideoCaptureProperties.Sharpness, Camera.Sharpness);
                 
-                _capture.Set(VideoCaptureProperties.Contrast, 40);
-                _capture.Set(VideoCaptureProperties.Saturation, 60);
+                // 자동 화이트밸런스
+                _capture.Set(VideoCaptureProperties.AutoWB, Camera.AutoWhiteBalance ? 1 : 0);
                 
                 // 버퍼 크기
                 _capture.Set(VideoCaptureProperties.BufferSize, 1);

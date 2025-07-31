@@ -5,6 +5,8 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
         xmlns:converters="clr-namespace:SafetyVisionMonitor.Converters"
+        xmlns:syncfusionskin="clr-namespace:Syncfusion.SfSkinManager;assembly=Syncfusion.SfSkinManager.WPF"
+        syncfusionskin:SfSkinManager.Theme="{syncfusion:SkinManagerExtension ThemeName=FluentDark, FluentHoverEffectMode=Border}"
         mc:Ignorable="d"
         Title="카메라 설정" 
         Height="700" Width="650"

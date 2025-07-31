@@ -5,9 +5,9 @@
                              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
                              xmlns:local="clr-namespace:SafetyVisionMonitor"
                              xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
-                             xmlns:syncfusionskin ="clr-namespace:Syncfusion.SfSkinManager;assembly=Syncfusion.SfSkinManager.WPF"
+                             xmlns:syncfusionskin="clr-namespace:Syncfusion.SfSkinManager;assembly=Syncfusion.SfSkinManager.WPF"
                              mc:Ignorable="d"
-                             syncfusionskin:SfSkinManager.Theme="{syncfusionskin:SkinManagerExtension ThemeName=FluentDark, FluentHoverEffectMode=Border}"
+                             syncfusionskin:SfSkinManager.Theme="{syncfusion:SkinManagerExtension ThemeName=FluentDark, FluentHoverEffectMode=Border}"
                              Title="DeepSafety v1.0.0" Height="1024" Width="1600"
                              WindowStartupLocation="CenterScreen">
 <Grid>

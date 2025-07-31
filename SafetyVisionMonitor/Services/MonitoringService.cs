@@ -112,8 +112,27 @@ namespace SafetyVisionMonitor.Services
                 {
                     try
                     {
-                        await App.CameraService.ConnectCamera(camera);
-                        Debug.WriteLine($"카메라 {camera.Name} 연결 성공");
+                        var success = await App.CameraService.ConnectCamera(camera);
+                        if (success)
+                        {
+                            Debug.WriteLine($"카메라 {camera.Name} 연결 성공");
+                            
+                            // 연결 후 이미지 조정 설정을 즉시 적용 ("변경사항 적용" 버튼과 동일)
+                            try
+                            {
+                                await Task.Delay(500); // 카메라 안정화 대기
+                                App.CameraService.UpdateCameraSettings(camera.Id, camera);
+                                Debug.WriteLine($"MonitoringService: Applied image settings after auto-connection: {camera.Name} (Brightness={camera.Brightness})");
+                            }
+                            catch (Exception settingsEx)
+                            {
+                                Debug.WriteLine($"MonitoringService: Failed to apply settings after auto-connection: {settingsEx.Message}");
+                            }
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"카메라 {camera.Name} 연결 실패");
+                        }
                     }
                     catch (Exception ex)
                     {

@@ -5,7 +5,10 @@
         Height="300" Width="500"
         WindowStartupLocation="CenterScreen"
         WindowStyle="None"
+        xmlns:syncfusionskin="clr-namespace:Syncfusion.SfSkinManager;assembly=Syncfusion.SfSkinManager.WPF"
+        syncfusionskin:SfSkinManager.Theme="{syncfusionskin:SkinManagerExtension ThemeName=FluentDark, FluentHoverEffectMode=Border}"
         ResizeMode="NoResize"
+        Topmost="True"
         Background="#1A1A1A">
     
     <Border BorderBrush="#007ACC" BorderThickness="2">

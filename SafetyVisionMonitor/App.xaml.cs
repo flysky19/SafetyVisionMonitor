@@ -58,9 +58,14 @@ public partial class App : Application
             
             splash.UpdateStatus("시작 중...");
             await Task.Delay(500); // 잠시 대기
+            
+            // 로딩 완료 후 TopMost 해제
+            splash.SetLoadingComplete();
+            await Task.Delay(300); // 완료 메시지 표시 시간
         }
         catch (Exception ex)
         {
+            splash.DisableTopMost(); // 오류 발생 시에도 TopMost 해제
             MessageBox.Show($"프로그램 초기화 중 오류 발생:\n{ex.Message}", 
                 "오류", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
