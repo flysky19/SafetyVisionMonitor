@@ -20,6 +20,10 @@ public partial class App : Application
     public static MonitoringService MonitoringService { get; private set; } = null!;
     public static ApplicationData AppData { get; private set; } = null!;
     
+    // AI 서비스
+    public static AIInferenceService AIInferenceService { get; private set; } = null!;
+    public static AIProcessingPipeline AIPipeline { get; private set; } = null!;
+    
     protected override async void OnStartup(StartupEventArgs e)
     {
         // 스플래시 화면 표시 (선택사항)
@@ -43,6 +47,12 @@ public partial class App : Application
             // 서비스 초기화
             DatabaseService = new DatabaseService();
             CameraService = new CameraService();
+            
+            // AI 서비스 초기화
+            splash.UpdateStatus("AI 서비스 초기화 중...");
+            AIInferenceService = new AIInferenceService();
+            AIPipeline = new AIProcessingPipeline(AIInferenceService);
+            
             MonitoringService = new MonitoringService();
             
             // 전역 데이터 로드
@@ -94,6 +104,14 @@ public partial class App : Application
             mainViewModel.Cleanup();
         }
          
+        // AI 서비스 정리
+        if (AIPipeline != null)
+        {
+            await AIPipeline.StopAsync();
+            AIPipeline.Dispose();
+        }
+        AIInferenceService?.Dispose();
+        
         // 서비스 정리
         CameraService?.Dispose();
         

@@ -1,0 +1,156 @@
+using System;
+using System.Drawing;
+
+namespace SafetyVisionMonitor.Models
+{
+    /// <summary>
+    /// YOLO 객체 검출 결과
+    /// </summary>
+    public class DetectionResult
+    {
+        /// <summary>
+        /// 검출된 객체의 바운딩 박스 (픽셀 좌표)
+        /// </summary>
+        public RectangleF BoundingBox { get; set; }
+        
+        /// <summary>
+        /// 검출 신뢰도 (0.0 ~ 1.0)
+        /// </summary>
+        public float Confidence { get; set; }
+        
+        /// <summary>
+        /// 클래스 ID (0: person, 1: bicycle, 2: car, ...)
+        /// </summary>
+        public int ClassId { get; set; }
+        
+        /// <summary>
+        /// 클래스 이름
+        /// </summary>
+        public string ClassName { get; set; } = string.Empty;
+        
+        /// <summary>
+        /// 검출된 카메라 ID
+        /// </summary>
+        public string CameraId { get; set; } = string.Empty;
+        
+        /// <summary>
+        /// 검출 시간
+        /// </summary>
+        public DateTime Timestamp { get; set; } = DateTime.Now;
+        
+        /// <summary>
+        /// 객체 추적 ID (연속 프레임에서 동일 객체 식별용)
+        /// </summary>
+        public int? TrackingId { get; set; }
+        
+        /// <summary>
+        /// 바운딩 박스의 중심점
+        /// </summary>
+        public PointF Center => new PointF(
+            BoundingBox.X + BoundingBox.Width / 2,
+            BoundingBox.Y + BoundingBox.Height / 2
+        );
+        
+        /// <summary>
+        /// 바운딩 박스 면적
+        /// </summary>
+        public float Area => BoundingBox.Width * BoundingBox.Height;
+        
+        public override string ToString()
+        {
+            return $"{ClassName} ({Confidence:F2}) at ({BoundingBox.X:F0}, {BoundingBox.Y:F0})";
+        }
+    }
+    
+    /// <summary>
+    /// 모델 메타데이터
+    /// </summary>
+    public class ModelMetadata
+    {
+        /// <summary>
+        /// 입력 이미지 크기
+        /// </summary>
+        public Size InputSize { get; set; } = new Size(640, 640);
+        
+        /// <summary>
+        /// 클래스 개수
+        /// </summary>
+        public int ClassCount { get; set; } = 80;
+        
+        /// <summary>
+        /// 클래스 이름 목록
+        /// </summary>
+        public string[] ClassNames { get; set; } = Array.Empty<string>();
+        
+        /// <summary>
+        /// 앵커 박스 개수
+        /// </summary>
+        public int AnchorCount { get; set; } = 8400;
+        
+        /// <summary>
+        /// 모델 입력 형식 (RGB/BGR)
+        /// </summary>
+        public bool IsRgbInput { get; set; } = true;
+        
+        /// <summary>
+        /// 정규화 평균값
+        /// </summary>
+        public float[] Mean { get; set; } = { 0.485f, 0.456f, 0.406f };
+        
+        /// <summary>
+        /// 정규화 표준편차
+        /// </summary>
+        public float[] Std { get; set; } = { 0.229f, 0.224f, 0.225f };
+    }
+    
+    /// <summary>
+    /// AI 처리 성능 지표
+    /// </summary>
+    public class ModelPerformance
+    {
+        /// <summary>
+        /// 전처리 시간 (ms)
+        /// </summary>
+        public double PreprocessTime { get; set; }
+        
+        /// <summary>
+        /// 추론 시간 (ms)
+        /// </summary>
+        public double InferenceTime { get; set; }
+        
+        /// <summary>
+        /// 후처리 시간 (ms)
+        /// </summary>
+        public double PostprocessTime { get; set; }
+        
+        /// <summary>
+        /// 전체 처리 시간 (ms)
+        /// </summary>
+        public double TotalTime => PreprocessTime + InferenceTime + PostprocessTime;
+        
+        /// <summary>
+        /// 처리된 프레임 수
+        /// </summary>
+        public int ProcessedFrames { get; set; }
+        
+        /// <summary>
+        /// 검출된 객체 수
+        /// </summary>
+        public int DetectedObjects { get; set; }
+        
+        /// <summary>
+        /// GPU 메모리 사용량 (MB)
+        /// </summary>
+        public long GpuMemoryUsage { get; set; }
+        
+        /// <summary>
+        /// CPU 사용률 (%)
+        /// </summary>
+        public double CpuUsage { get; set; }
+        
+        public override string ToString()
+        {
+            return $"Total: {TotalTime:F1}ms (Inference: {InferenceTime:F1}ms, Objects: {DetectedObjects})";
+        }
+    }
+}

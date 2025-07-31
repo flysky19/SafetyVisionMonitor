@@ -15,5 +15,8 @@ namespace SafetyVisionMonitor.Models
         public string? ZoneId { get; set; }
         public string? Description { get; set; }
         public string? BoundingBoxJson { get; set; }
+        public string? PersonBoundingBox { get; set; }
+        public string? Severity { get; set; }
+        public bool IsAcknowledged { get; set; }
     }
 }

@@ -163,6 +163,27 @@ namespace SafetyVisionMonitor.Services
         
         private void DistributeAIFrame(CameraFrameEventArgs originalFrame)
         {
+            // AI 파이프라인으로 직접 전송 (더 효율적)
+            if (App.AIPipeline != null)
+            {
+                try
+                {
+                    var aiFrame = originalFrame.Frame.Clone();
+                    var queued = App.AIPipeline.QueueFrame(originalFrame.CameraId, aiFrame);
+                    
+                    if (!queued)
+                    {
+                        // 큐 실패 시 프레임 해제
+                        aiFrame.Dispose();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"AI pipeline queue error: {ex.Message}");
+                }
+            }
+            
+            // 기존 핸들러들도 지원 (하위 호환성)
             var aiHandlers = FrameReceivedForAI?.GetInvocationList();
             if (aiHandlers != null)
             {

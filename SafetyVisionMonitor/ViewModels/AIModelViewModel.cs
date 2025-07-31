@@ -7,6 +7,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
+using OpenCvSharp;
 using SafetyVisionMonitor.Models;
 using SafetyVisionMonitor.ViewModels.Base;
 
@@ -186,24 +187,60 @@ namespace SafetyVisionMonitor.ViewModels
             if (model.IsActive)
                 return;
                 
-            // 기존 활성 모델 비활성화
-            foreach (var m in Models)
+            try
             {
-                m.IsActive = false;
-                m.Status = ModelStatus.Ready;
+                // 기존 활성 모델 비활성화
+                foreach (var m in Models)
+                {
+                    m.IsActive = false;
+                    m.Status = ModelStatus.Ready;
+                }
+                
+                // 새 모델 활성화
+                model.IsActive = true;
+                model.Status = ModelStatus.Loading;
+                
+                // 실제 AI 서비스를 통한 모델 로드
+                var aiModel = new Models.AIModel
+                {
+                    Id = model.Id,
+                    Name = model.Name,
+                    ModelPath = model.ModelPath,
+                    Type = model.Type,
+                    Confidence = (float)model.Confidence
+                };
+                
+                var success = await App.AIInferenceService.LoadModelAsync(aiModel);
+                
+                if (success)
+                {
+                    model.Status = ModelStatus.Ready;
+                    CurrentConfidence = model.Confidence;
+                    
+                    // DB에 활성 모델 상태 저장
+                    await SaveActiveModelToDatabase(model);
+                    
+                    StatusMessage = $"'{model.Name}' 모델이 활성화되었습니다.";
+                }
+                else
+                {
+                    model.IsActive = false;
+                    model.Status = ModelStatus.Error;
+                    StatusMessage = $"'{model.Name}' 모델 로드에 실패했습니다.";
+                    
+                    MessageBox.Show($"모델 로드 실패: {model.Name}\n파일 경로를 확인해주세요.", "오류",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
             }
-            
-            // 새 모델 활성화
-            model.IsActive = true;
-            model.Status = ModelStatus.Loading;
-            
-            // TODO: 실제 모델 로드 로직
-            await Task.Delay(1000); // 시뮬레이션
-            
-            model.Status = ModelStatus.Ready;
-            CurrentConfidence = model.Confidence;
-            
-            StatusMessage = $"'{model.Name}' 모델이 활성화되었습니다.";
+            catch (Exception ex)
+            {
+                model.IsActive = false;
+                model.Status = ModelStatus.Error;
+                StatusMessage = $"모델 활성화 중 오류 발생: {ex.Message}";
+                
+                MessageBox.Show($"모델 활성화 중 오류 발생:\n{ex.Message}", "오류",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
         
         [RelayCommand]
@@ -212,6 +249,13 @@ namespace SafetyVisionMonitor.ViewModels
             if (SelectedModel == null)
             {
                 MessageBox.Show("테스트할 모델을 선택해주세요.", "알림",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            
+            if (!SelectedModel.IsActive)
+            {
+                MessageBox.Show("모델을 먼저 활성화해주세요.", "알림",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -228,18 +272,78 @@ namespace SafetyVisionMonitor.ViewModels
                 IsModelRunning = true;
                 SelectedModel.Status = ModelStatus.Running;
                 
+                var totalDetections = 0;
+                var totalTime = 0.0;
+                
                 try
                 {
-                    // TODO: 실제 추론 로직
-                    foreach (var file in openFileDialog.FileNames)
+                    StatusMessage = "이미지 테스트 중...";
+                    
+                    foreach (var filePath in openFileDialog.FileNames)
                     {
-                        await Task.Delay(100); // 시뮬레이션
-                        ProcessedFrames++;
-                        InferenceTime = $"{Random.Shared.Next(10, 50)} ms";
+                        try
+                        {
+                            // OpenCV를 사용하여 이미지 로드
+                            using var image = OpenCvSharp.Cv2.ImRead(filePath);
+                            if (image.Empty())
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Failed to load image: {filePath}");
+                                continue;
+                            }
+                            
+                            var startTime = DateTime.Now;
+                            
+                            // AI 서비스를 통한 실제 추론
+                            var detections = await App.AIInferenceService.InferFrameAsync("test_camera", image);
+                            
+                            var processingTime = (DateTime.Now - startTime).TotalMilliseconds;
+                            totalTime += processingTime;
+                            totalDetections += detections.Length;
+                            
+                            ProcessedFrames++;
+                            InferenceTime = $"{processingTime:F1} ms";
+                            
+                            // 검출 결과를 디버그 로그로 출력
+                            if (detections.Length > 0)
+                            {
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"Test image {Path.GetFileName(filePath)}: {detections.Length} objects detected " +
+                                    $"in {processingTime:F1}ms");
+                                
+                                foreach (var detection in detections)
+                                {
+                                    System.Diagnostics.Debug.WriteLine(
+                                        $"  - {detection.ClassName}: {detection.Confidence:P1} " +
+                                        $"at ({detection.BoundingBox.X}, {detection.BoundingBox.Y})");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Error processing image {filePath}: {ex.Message}");
+                        }
+                        
+                        // UI 업데이트를 위한 짧은 지연
+                        await Task.Delay(50);
                     }
                     
-                    MessageBox.Show($"테스트 완료!\n처리된 이미지: {openFileDialog.FileNames.Length}개",
-                        "테스트 결과", MessageBoxButton.OK, MessageBoxImage.Information);
+                    var avgTime = openFileDialog.FileNames.Length > 0 ? totalTime / openFileDialog.FileNames.Length : 0;
+                    
+                    var resultMessage = $"테스트 완료!\n" +
+                                      $"처리된 이미지: {openFileDialog.FileNames.Length}개\n" +
+                                      $"총 검출 객체: {totalDetections}개\n" +
+                                      $"평균 처리 시간: {avgTime:F1}ms";
+                    
+                    MessageBox.Show(resultMessage, "테스트 결과", 
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                    
+                    StatusMessage = $"테스트 완료 - {totalDetections}개 객체 검출";
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"테스트 중 오류 발생:\n{ex.Message}", "오류",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    StatusMessage = $"테스트 실패: {ex.Message}";
                 }
                 finally
                 {
@@ -254,6 +358,48 @@ namespace SafetyVisionMonitor.ViewModels
             if (SelectedModel != null)
             {
                 SelectedModel.Confidence = value;
+                
+                // 실시간으로 AI 서비스의 신뢰도 임계값 업데이트
+                if (SelectedModel.IsActive)
+                {
+                    try
+                    {
+                        App.AIInferenceService.UpdateConfidenceThreshold((float)value);
+                        StatusMessage = $"신뢰도 임계값이 {value:P1}로 변경되었습니다.";
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to update confidence threshold: {ex.Message}");
+                    }
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 활성 모델 정보를 데이터베이스에 저장
+        /// </summary>
+        private async Task SaveActiveModelToDatabase(AIModel model)
+        {
+            try
+            {
+                // AppData의 AI 모델 설정 업데이트
+                foreach (var config in App.AppData.AIModels)
+                {
+                    config.IsActive = config.Id.ToString() == model.Id;
+                    if (config.IsActive)
+                    {
+                        config.DefaultConfidence = model.Confidence;
+                    }
+                }
+                
+                // 데이터베이스에 저장
+                await App.DatabaseService.SaveAIModelConfigsAsync(App.AppData.AIModels.ToList());
+                
+                System.Diagnostics.Debug.WriteLine($"Active model saved to database: {model.Name}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to save active model to database: {ex.Message}");
             }
         }
     }

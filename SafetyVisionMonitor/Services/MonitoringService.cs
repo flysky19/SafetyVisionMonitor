@@ -16,6 +16,7 @@ namespace SafetyVisionMonitor.Services
     {
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private readonly DispatcherTimer _performanceTimer;
+        private readonly SafetyDetectionService _safetyDetection;
         private Task? _monitoringTask;
         
         // 이벤트
@@ -40,6 +41,7 @@ namespace SafetyVisionMonitor.Services
         {
             _currentProcess = Process.GetCurrentProcess();
             _gpuCounters = new List<PerformanceCounter>();
+            _safetyDetection = new SafetyDetectionService(App.DatabaseService);
             
             try
             {
@@ -71,6 +73,19 @@ namespace SafetyVisionMonitor.Services
             
             IsRunning = true;
             _performanceTimer.Start();
+            
+            // 안전 감시 서비스 초기화
+            await _safetyDetection.LoadZoneDataAsync();
+            
+            // AI 파이프라인 이벤트 구독
+            if (App.AIPipeline != null)
+            {
+                App.AIPipeline.ObjectDetected += OnAIObjectDetected;
+            }
+            
+            // 안전 감시 이벤트 구독
+            _safetyDetection.SafetyEventDetected += OnSafetyEventDetected;
+            _safetyDetection.ZoneViolationDetected += OnZoneViolationDetected;
             
             // 자동 카메라 연결
             await ConnectCamerasAsync();
@@ -149,14 +164,112 @@ namespace SafetyVisionMonitor.Services
             {
                 try
                 {
-                    // TODO: 실제 AI 모델 로드
-                    await Task.Delay(1000); // 시뮬레이션
-                    Debug.WriteLine($"AI 모델 {activeModel.ModelName} 로드 완료");
+                    // 실제 AI 모델 로드
+                    var aiModel = new AIModel
+                    {
+                        Id = activeModel.Id.ToString(),
+                        Name = activeModel.ModelName,
+                        ModelPath = activeModel.ModelPath,
+                        Type = Enum.Parse<ModelType>(activeModel.ModelType),
+                        Confidence = activeModel.DefaultConfidence
+                    };
+                    
+                    var success = await App.AIInferenceService.LoadModelAsync(aiModel);
+                    if (success)
+                    {
+                        Debug.WriteLine($"AI 모델 {activeModel.ModelName} 로드 완료");
+                    }
+                    else
+                    {
+                        Debug.WriteLine($"AI 모델 {activeModel.ModelName} 로드 실패");
+                    }
                 }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"AI 모델 로드 실패: {ex.Message}");
                 }
+            }
+        }
+        
+        /// <summary>
+        /// AI 파이프라인에서 객체 검출 이벤트 처리
+        /// </summary>
+        private async void OnAIObjectDetected(object? sender, ObjectDetectionEventArgs e)
+        {
+            try
+            {
+                // 검출된 객체에 대해 안전 검사 수행
+                var safetyResult = await _safetyDetection.CheckSafetyAsync(e.CameraId, e.Detections);
+                
+                // 통계 업데이트
+                DetectedPersonCount = safetyResult.TotalPersons;
+                ActiveAlertsCount = safetyResult.Violations.Count;
+                
+                // 기존 이벤트도 발생 (하위 호환성)
+                foreach (var detection in e.Detections)
+                {
+                    ObjectDetected?.Invoke(this, detection);
+                }
+                
+                Debug.WriteLine($"MonitoringService: {e.CameraId} - {e.Detections.Length} objects detected, " +
+                              $"{safetyResult.Violations.Count} violations");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"MonitoringService: AI detection handling error: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 안전 이벤트 발생 처리
+        /// </summary>
+        private void OnSafetyEventDetected(object? sender, SafetyEventArgs e)
+        {
+            try
+            {
+                // 안전 이벤트를 애플리케이션 데이터에 추가
+                App.Current.Dispatcher.Invoke(() =>
+                {
+                    App.AppData.RecentEvents.Insert(0, e.SafetyEvent);
+                    
+                    // 최근 이벤트는 100개만 유지
+                    while (App.AppData.RecentEvents.Count > 100)
+                    {
+                        App.AppData.RecentEvents.RemoveAt(App.AppData.RecentEvents.Count - 1);
+                    }
+                });
+                
+                // 기존 이벤트 발생
+                SafetyEventOccurred?.Invoke(this, e.SafetyEvent);
+                
+                Debug.WriteLine($"MonitoringService: Safety event - {e.SafetyEvent.EventType} " +
+                              $"in {e.Violation.Zone.Name} (Severity:Severity)");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"MonitoringService: Safety event handling error: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 구역 위반 감지 처리
+        /// </summary>
+        private void OnZoneViolationDetected(object? sender, ZoneViolationArgs e)
+        {
+            try
+            {
+                // 실시간 알림이나 추가 처리 로직
+                var highSeverityCount = e.Violations.Count(v => v.Zone.Type == ZoneType.Danger);
+                
+                if (highSeverityCount > 0)
+                {
+                    Debug.WriteLine($"MonitoringService: HIGH PRIORITY - {highSeverityCount} danger zone violations " +
+                                  $"detected on camera {e.CameraId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"MonitoringService: Zone violation handling error: {ex.Message}");
             }
         }
         
@@ -554,22 +667,12 @@ namespace SafetyVisionMonitor.Services
                 counter?.Dispose();
             }
             _gpuCounters.Clear();
+            
+            // 안전 감시 서비스 정리
+            _safetyDetection?.Dispose();
         }
     }
     
-    public class PerformanceMetrics
-    {
-        public DateTime Timestamp { get; set; }
-        public double CpuUsage { get; set; }
-        public double MemoryUsage { get; set; }
-        public double GpuUsage { get; set; }
-        public string GpuName { get; set; } = "Unknown GPU";
-        public double GpuMemoryUsage { get; set; }
-        public double GpuTemperature { get; set; }
-        public int ProcessedFps { get; set; }
-        public int DetectedPersons { get; set; }
-        public int ActiveAlerts { get; set; }
-    }
     
     public class GpuInfo
     {
@@ -579,18 +682,4 @@ namespace SafetyVisionMonitor.Services
         public double Temperature { get; set; }
     }
     
-    public class DetectionResult
-    {
-        public string CameraId { get; set; } = string.Empty;
-        public DateTime Timestamp { get; set; }
-        public List<Detection> Detections { get; set; } = new();
-    }
-    
-    public class Detection
-    {
-        public string ObjectType { get; set; } = string.Empty;
-        public Rectangle BoundingBox { get; set; }
-        public double Confidence { get; set; }
-        public string? TrackingId { get; set; }
-    }
 }

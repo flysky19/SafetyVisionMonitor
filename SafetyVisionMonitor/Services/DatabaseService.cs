@@ -491,5 +491,57 @@ namespace SafetyVisionMonitor.Services
                 return Colors.Red; // 변환 실패 시 기본색
             }
         }
+        
+        // AI 모델 설정 저장
+        public async Task SaveAIModelConfigsAsync(List<Database.AIModelConfig> models)
+        {
+            using var context = new AppDbContext();
+            
+            foreach (var model in models)
+            {
+                var existing = await context.AIModelConfigs
+                    .FirstOrDefaultAsync(m => m.Id == model.Id);
+                    
+                if (existing != null)
+                {
+                    // 업데이트
+                    existing.ModelName = model.ModelName;
+                    existing.ModelVersion = model.ModelVersion;
+                    existing.ModelPath = model.ModelPath;
+                    existing.ModelType = model.ModelType;
+                    existing.DefaultConfidence = model.DefaultConfidence;
+                    existing.IsActive = model.IsActive;
+                    existing.ConfigJson = model.ConfigJson;
+                    existing.FileSize = model.FileSize;
+                    existing.Description = model.Description;
+                }
+                else
+                {
+                    // 새로 추가
+                    context.AIModelConfigs.Add(model);
+                }
+            }
+            
+            await context.SaveChangesAsync();
+        }
+        
+        // AI 모델 설정 로드
+        public async Task<List<Database.AIModelConfig>> LoadAIModelConfigsAsync()
+        {
+            using var context = new AppDbContext();
+            return await context.AIModelConfigs.ToListAsync();
+        }
+        
+        // 안전 이벤트 조회
+        public async Task<List<SafetyEvent>> GetSafetyEventsAsync(DateTime startDate, int limit = 100)
+        {
+            using var context = new AppDbContext();
+            
+            return await context.SafetyEvents
+                .Where(e => e.Timestamp >= startDate)
+                .OrderByDescending(e => e.Timestamp)
+                .Take(limit)
+                .ToListAsync();
+        }
     }
 }

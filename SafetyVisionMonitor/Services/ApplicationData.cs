@@ -14,7 +14,7 @@ namespace SafetyVisionMonitor.Services
         public ObservableCollection<Camera> Cameras { get; }
         
         // AI 모델 설정
-        public ObservableCollection<AIModelConfig> AIModels { get; }
+        public ObservableCollection<Database.AIModelConfig> AIModels { get; }
         
         // 3D 구역 설정
         public ObservableCollection<Zone3DConfig> Zones { get; }
@@ -31,7 +31,7 @@ namespace SafetyVisionMonitor.Services
         public ApplicationData()
         {
             Cameras = new ObservableCollection<Camera>();
-            AIModels = new ObservableCollection<AIModelConfig>();
+            AIModels = new ObservableCollection<Database.AIModelConfig>();
             Zones = new ObservableCollection<Zone3DConfig>();
             RecentEvents = new ObservableCollection<SafetyEvent>();
         }
@@ -85,8 +85,7 @@ namespace SafetyVisionMonitor.Services
         {
             try
             {
-                using var context = new AppDbContext();
-                var models = context.AIModelConfigs.ToList();
+                var models = await App.DatabaseService.LoadAIModelConfigsAsync();
                 
                 foreach (var model in models)
                 {
@@ -96,16 +95,21 @@ namespace SafetyVisionMonitor.Services
                 // 기본 모델이 없으면 샘플 추가
                 if (!AIModels.Any())
                 {
-                    AIModels.Add(new AIModelConfig
+                    var defaultModel = new Database.AIModelConfig
                     {
                         ModelName = "YOLOv8n",
                         ModelVersion = "1.0.0",
-                        ModelType = "YOLO",
+                        ModelType = "YOLOv8",
                         ModelPath = "Models/yolov8n.onnx",
                         DefaultConfidence = 0.7,
                         IsActive = true,
                         UploadedTime = DateTime.Now
-                    });
+                    };
+                    
+                    AIModels.Add(defaultModel);
+                    
+                    // 기본 모델을 데이터베이스에 저장
+                    await App.DatabaseService.SaveAIModelConfigsAsync(new List<Database.AIModelConfig> { defaultModel });
                 }
             }
             catch (Exception ex)

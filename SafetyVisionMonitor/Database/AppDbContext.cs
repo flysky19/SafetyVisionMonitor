@@ -122,9 +122,11 @@ namespace SafetyVisionMonitor.Database
         public string ModelVersion { get; set; } = string.Empty;
         public string ModelPath { get; set; } = string.Empty;
         public string ModelType { get; set; } = string.Empty; // YOLO, etc
-        public double DefaultConfidence { get; set; }
+        public double DefaultConfidence { get; set; } = 0.7;
         public string ConfigJson { get; set; } = string.Empty;
-        public bool IsActive { get; set; }
-        public DateTime UploadedTime { get; set; }
+        public bool IsActive { get; set; } = false;
+        public DateTime UploadedTime { get; set; } = DateTime.Now;
+        public long FileSize { get; set; } = 0;
+        public string? Description { get; set; }
     }
 }
