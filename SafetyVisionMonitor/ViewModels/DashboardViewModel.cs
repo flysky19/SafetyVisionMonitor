@@ -26,10 +26,8 @@ namespace SafetyVisionMonitor.ViewModels
         private readonly Dictionary<string, BitmapSource?> _cameraFrames = new();
         private object _frameLock = new();
         
-        // 추적 관련
-        private PersonTrackingService? _trackingService;
-        private TrackingConfiguration? _trackingConfig;
-        private readonly Dictionary<string, List<TrackedPerson>> _trackedPersons = new();
+        // 추적 관련 (백그라운드 서비스에서 관리)
+        private readonly Dictionary<string, List<TrackedPerson>> _latestTrackedPersons = new();
         private readonly Dictionary<string, List<DetectionResult>> _latestDetections = new();
         
         // 카메라 관련
@@ -52,6 +50,96 @@ namespace SafetyVisionMonitor.ViewModels
         
         [ObservableProperty]
         private bool showDetectionStats = false;
+        
+        // 추적 관련 UI 속성
+        [ObservableProperty]
+        private bool isTrackingActive = false;
+        
+        [ObservableProperty]
+        private int activeTrackersCount = 0;
+        
+        [ObservableProperty]
+        private int totalTrackersCreated = 0;
+        
+        [ObservableProperty]
+        private bool showTrackingIds = true;
+        
+        [ObservableProperty]
+        private bool showTrackingPaths = true;
+        
+        /// <summary>
+        /// ShowTrackingIds 속성 변경 시 백그라운드 서비스에 반영
+        /// </summary>
+        partial void OnShowTrackingIdsChanged(bool value)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var trackingService = App.TrackingService;
+                    if (trackingService != null)
+                    {
+                        // 현재 설정을 복사하고 ShowTrackingId만 변경
+                        var currentConfig = new TrackingConfiguration
+                        {
+                            IsEnabled = true,
+                            ShowTrackingId = value,
+                            ShowTrackingPath = ShowTrackingPaths,
+                            MaxTrackingDistance = 50,
+                            MaxDisappearFrames = 30,
+                            IouThreshold = 0.3f,
+                            SimilarityThreshold = 0.7f,
+                            TrackHistoryLength = 50,
+                            PathDisplayLength = 20,
+                            TrackingMethod = "SORT"
+                        };
+                        
+                        await trackingService.UpdateTrackingConfigurationAsync(currentConfig);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to update ShowTrackingIds: {ex.Message}");
+                }
+            });
+        }
+        
+        /// <summary>
+        /// ShowTrackingPaths 속성 변경 시 백그라운드 서비스에 반영
+        /// </summary>
+        partial void OnShowTrackingPathsChanged(bool value)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var trackingService = App.TrackingService;
+                    if (trackingService != null)
+                    {
+                        // 현재 설정을 복사하고 ShowTrackingPath만 변경
+                        var currentConfig = new TrackingConfiguration
+                        {
+                            IsEnabled = true,
+                            ShowTrackingId = ShowTrackingIds,
+                            ShowTrackingPath = value,
+                            MaxTrackingDistance = 50,
+                            MaxDisappearFrames = 30,
+                            IouThreshold = 0.3f,
+                            SimilarityThreshold = 0.7f,
+                            TrackHistoryLength = 50,
+                            PathDisplayLength = 20,
+                            TrackingMethod = "SORT"
+                        };
+                        
+                        await trackingService.UpdateTrackingConfigurationAsync(currentConfig);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to update ShowTrackingPaths: {ex.Message}");
+                }
+            });
+        }
         
         // 정적 속성으로 디버그 설정 공유
         public static bool StaticShowAllDetections { get; private set; }
@@ -156,11 +244,10 @@ namespace SafetyVisionMonitor.ViewModels
                 };
                 Cameras.Add(cameraVm);
                 _cameraFrames[camera.Id] = null;
-                _trackedPersons[camera.Id] = new List<TrackedPerson>();
+                _latestTrackedPersons[camera.Id] = new List<TrackedPerson>();
             }
             
-            // 추적 설정 로드 및 서비스 초기화
-            LoadTrackingConfiguration();
+            // 추적은 백그라운드 서비스에서 처리됨
         }
         
         public override void OnLoaded()
@@ -178,11 +265,32 @@ namespace SafetyVisionMonitor.ViewModels
                 App.AIPipeline.ObjectDetected += OnObjectDetectedForDebug;
             }
             
+            // 백그라운드 추적 서비스 이벤트 구독
+            App.MonitoringService.TrackingUpdated += OnBackgroundTrackingUpdated;
+            
             // 구역 업데이트 이벤트 구독
             App.AppData.ZoneUpdated += OnZoneUpdated;
             
             // 구역 데이터 로드
             LoadZoneOverlaysAsync();
+        }
+        
+        public override void Cleanup()
+        {
+            // 이벤트 구독 해제
+            App.CameraService.FrameReceivedForUI -= OnFrameReceived;
+            App.CameraService.ConnectionChanged -= OnConnectionChanged;
+            App.MonitoringService.PerformanceUpdated -= OnPerformanceUpdated;
+            App.MonitoringService.TrackingUpdated -= OnBackgroundTrackingUpdated;
+            
+            if (App.AIPipeline != null)
+            {
+                App.AIPipeline.ObjectDetected -= OnObjectDetectedForDebug;
+            }
+            
+            App.AppData.ZoneUpdated -= OnZoneUpdated;
+            
+            base.Cleanup();
         }
 
         private async Task LoadZoneOverlaysAsync()
@@ -291,18 +399,18 @@ namespace SafetyVisionMonitor.ViewModels
             _updateTimer?.Stop();
         }
         
-        public override void Cleanup()
-        {
-            base.Cleanup();
-            
-            // 이벤트 구독 해제는 ViewModel이 완전히 소멸될 때만
-            App.CameraService.FrameReceivedForUI -= OnFrameReceived;
-            App.CameraService.ConnectionChanged -= OnConnectionChanged;
-            App.MonitoringService.PerformanceUpdated -= OnPerformanceUpdated;
-            App.AppData.ZoneUpdated -= OnZoneUpdated;
-            
-            _updateTimer?.Stop();
-        }
+        // public override void Cleanup()
+        // {
+        //     base.Cleanup();
+        //     
+        //     // 이벤트 구독 해제는 ViewModel이 완전히 소멸될 때만
+        //     App.CameraService.FrameReceivedForUI -= OnFrameReceived;
+        //     App.CameraService.ConnectionChanged -= OnConnectionChanged;
+        //     App.MonitoringService.PerformanceUpdated -= OnPerformanceUpdated;
+        //     App.AppData.ZoneUpdated -= OnZoneUpdated;
+        //     
+        //     _updateTimer?.Stop();
+        // }
         
         [RelayCommand]
         private async Task TestCameraDisplay()
@@ -903,59 +1011,35 @@ namespace SafetyVisionMonitor.ViewModels
     public partial class DashboardViewModel
     {
         /// <summary>
-        /// 추적 설정 로드 및 서비스 초기화
+        /// 백그라운드 추적 서비스 업데이트 이벤트 처리
         /// </summary>
-        private async void LoadTrackingConfiguration()
+        private void OnBackgroundTrackingUpdated(object? sender, TrackingUpdateEventArgs e)
         {
             try
             {
-                var dbConfig = await App.DatabaseService.LoadTrackingConfigAsync();
-                if (dbConfig != null)
-                {
-                    _trackingConfig = new TrackingConfiguration
-                    {
-                        IsEnabled = dbConfig.IsEnabled,
-                        MaxTrackingDistance = dbConfig.MaxTrackingDistance,
-                        MaxDisappearFrames = dbConfig.MaxDisappearFrames,
-                        IouThreshold = (float)dbConfig.IouThreshold,
-                        SimilarityThreshold = (float)dbConfig.SimilarityThreshold,
-                        EnableReIdentification = dbConfig.EnableReIdentification,
-                        EnableMultiCameraTracking = dbConfig.EnableMultiCameraTracking,
-                        TrackHistoryLength = dbConfig.TrackHistoryLength,
-                        ShowTrackingId = dbConfig.ShowTrackingId,
-                        ShowTrackingPath = dbConfig.ShowTrackingPath,
-                        PathDisplayLength = dbConfig.PathDisplayLength,
-                        TrackingMethod = dbConfig.TrackingMethod
-                    };
-                }
-                else
-                {
-                    // 기본 설정
-                    _trackingConfig = new TrackingConfiguration
-                    {
-                        IsEnabled = true,
-                        MaxTrackingDistance = 50,
-                        MaxDisappearFrames = 30,
-                        IouThreshold = 0.3f,
-                        SimilarityThreshold = 0.7f,
-                        TrackHistoryLength = 50,
-                        ShowTrackingId = true,
-                        ShowTrackingPath = true,
-                        PathDisplayLength = 20,
-                        TrackingMethod = "SORT"
-                    };
-                }
+                // 최신 추적 결과 저장
+                _latestTrackedPersons[e.CameraId] = e.TrackedPersons;
                 
-                // 추적 서비스 초기화
-                if (_trackingConfig.IsEnabled)
+                // 검출 결과도 업데이트 (트래킹 ID 포함)
+                _latestDetections[e.CameraId] = e.DetectionsWithTracking;
+                
+                // UI 스레드에서 추적 상태 업데이트
+                App.Current.Dispatcher.BeginInvoke(() =>
                 {
-                    _trackingService = new PersonTrackingService(_trackingConfig);
-                    System.Diagnostics.Debug.WriteLine($"Tracking service initialized: {_trackingConfig.TrackingMethod}");
-                }
+                    // 추적 활성 상태 업데이트
+                    var totalActiveTracks = _latestTrackedPersons.Values.Sum(list => list.Count(p => p.IsActive));
+                    IsTrackingActive = totalActiveTracks > 0;
+                    
+                    // MonitoringService에서 통계 가져오기
+                    ActiveTrackersCount = App.MonitoringService.ActiveTrackersCount;
+                    TotalTrackersCreated = App.MonitoringService.TotalTrackersCreated;
+                });
+                
+                System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Tracking update for {e.CameraId} - {e.TrackedPersons.Count} active tracks");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Failed to load tracking configuration: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Tracking update error - {ex.Message}");
             }
         }
         
@@ -1048,44 +1132,6 @@ namespace SafetyVisionMonitor.ViewModels
             return scaledBox;
         }
         
-        /// <summary>
-        /// 검출 결과에 추적 정보 적용
-        /// </summary>
-        private List<DetectionResult> ApplyTracking(List<DetectionResult> detections, string cameraId)
-        {
-            if (_trackingService == null || !_trackingConfig?.IsEnabled == true)
-                return detections;
-                
-            try
-            {
-                // 추적 서비스 업데이트
-                var trackedPersons = _trackingService.UpdateTracking(detections, cameraId);
-                _trackedPersons[cameraId] = trackedPersons;
-                
-                // 검출 결과에 트래킹 ID 적용
-                var updatedDetections = new List<DetectionResult>();
-                foreach (var detection in detections)
-                {
-                    var tracked = trackedPersons.FirstOrDefault(t => 
-                        Math.Abs(t.BoundingBox.X - detection.BoundingBox.X) < 10 &&
-                        Math.Abs(t.BoundingBox.Y - detection.BoundingBox.Y) < 10);
-                        
-                    if (tracked != null)
-                    {
-                        detection.TrackingId = tracked.TrackingId;
-                    }
-                    
-                    updatedDetections.Add(detection);
-                }
-                
-                return updatedDetections;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Tracking error for camera {cameraId}: {ex.Message}");
-                return detections;
-            }
-        }
         
         /// <summary>
         /// 프레임에 추적 정보 그리기
@@ -1094,90 +1140,109 @@ namespace SafetyVisionMonitor.ViewModels
         {
             try
             {
-                if (detections?.Any() != true)
+                // 백그라운드 서비스에서 관리되는 추적 데이터 가져오기
+                var trackedPersons = _latestTrackedPersons.GetValueOrDefault(cameraId, new List<TrackedPerson>());
+                
+                // 추적 데이터가 없거나 백그라운드 서비스를 사용할 수 없으면 원본 프레임 반환
+                if (!trackedPersons.Any() || App.TrackingService == null)
                 {
-                    // 검출 결과가 없으면 원본 프레임 반환
-                    return frame;
+                    return frame; // CameraService가 이미 기본 검출 박스를 그림
                 }
                 
                 // 프레임 복사본 생성
                 var drawFrame = frame.Clone();
                 
-                // CameraService에서 이미 검출 박스를 그리므로 여기서는 추적 정보만 추가
-                // 추적이 비활성화된 경우 원본 프레임 반환 (CameraService가 이미 검출 박스를 그림)
-                if (_trackingService == null || _trackingConfig?.IsEnabled != true)
+                // 추적 경로 그리기 (체크박스 설정 확인)
+                foreach (var person in trackedPersons.Where(p => p.IsActive))
                 {
-                    return drawFrame; // 검출 박스는 이미 CameraService에서 그려짐
-                }
-                
-                // 추적 서비스로 검출 결과 업데이트
-                var updatedDetections = ApplyTracking(detections, cameraId);
-                
-                // 추적된 사람 정보 가져오기
-                var trackedPersons = _trackedPersons.GetValueOrDefault(cameraId, new List<TrackedPerson>());
-                
-                // 프레임 복사본 생성 (이미 위에서 생성됨)
-                var trackedFrame = drawFrame;
-                
-                // 추적 경로 그리기 (설정이 활성화된 경우)
-                if (_trackingConfig.ShowTrackingPath && trackedPersons.Any())
-                {
-                    foreach (var person in trackedPersons.Where(p => p.IsActive))
+                    // 추적 ID별 색상 결정
+                    var colors = new[]
                     {
-                        if (person.TrackingHistory == null || person.TrackingHistory.Count < 2)
-                            continue;
-                            
-                        // 경로 표시 길이 제한
-                        var pathLength = Math.Min(person.TrackingHistory.Count, _trackingConfig.PathDisplayLength);
-                        var recentPath = person.TrackingHistory.TakeLast(pathLength).ToList();
+                        new Scalar(255, 0, 0),    // 빨강
+                        new Scalar(0, 255, 0),    // 초록
+                        new Scalar(0, 0, 255),    // 파랑
+                        new Scalar(255, 255, 0),  // 노랑
+                        new Scalar(255, 0, 255),  // 마젠타
+                        new Scalar(0, 255, 255),  // 시안
+                        new Scalar(255, 128, 0),  // 주황
+                        new Scalar(128, 0, 255)   // 보라
+                    };
+                    
+                    var colorIndex = person.TrackingId % colors.Length;
+                    var pathColor = colors[colorIndex];
+                    
+                    // UI 프레임 크기에 맞게 스케일링 (CameraService에서 0.5 스케일 적용)
+                    var scale = 0.5f;
+                    
+                    // 경로 표시 설정 확인 후 경로 그리기
+                    if (ShowTrackingPaths && person.TrackingHistory != null && person.TrackingHistory.Count >= 2)
+                    {
+                        // 경로 표시 (더 길게 50개 점으로 확장)
+                        var recentPath = person.TrackingHistory.TakeLast(50).ToList();
                         
-                        if (recentPath.Count < 2) continue;
-                        
-                        // 추적 ID별 색상 결정
-                        var colors = new[]
+                        if (recentPath.Count >= 2)
                         {
-                            new Scalar(255, 0, 0),    // 빨강
-                            new Scalar(0, 255, 0),    // 초록
-                            new Scalar(0, 0, 255),    // 파랑
-                            new Scalar(255, 255, 0),  // 노랑
-                            new Scalar(255, 0, 255),  // 마젠타
-                            new Scalar(0, 255, 255),  // 시안
-                            new Scalar(255, 128, 0),  // 주황
-                            new Scalar(128, 0, 255)   // 보라
-                        };
-                        
-                        var colorIndex = person.TrackingId % colors.Length;
-                        var pathColor = colors[colorIndex];
-                        
-                        // 경로 선 그리기
-                        for (int i = 0; i < recentPath.Count - 1; i++)
-                        {
-                            var startPoint = new Point((int)recentPath[i].X, (int)recentPath[i].Y);
-                            var endPoint = new Point((int)recentPath[i + 1].X, (int)recentPath[i + 1].Y);
-                            
-                            var thickness = Math.Max(1, 3 - (recentPath.Count - i - 1) / 3);
-                            Cv2.Line(trackedFrame, startPoint, endPoint, pathColor, thickness);
+                            // 경로 선을 꼬리처럼 자연스럽게 그리기 (뒤에서부터 서서히 사라지는 효과)
+                            for (int i = 0; i < recentPath.Count - 1; i++)
+                            {
+                                var startPoint = new Point(
+                                    (int)(recentPath[i].X * scale), 
+                                    (int)(recentPath[i].Y * scale)
+                                );
+                                var endPoint = new Point(
+                                    (int)(recentPath[i + 1].X * scale), 
+                                    (int)(recentPath[i + 1].Y * scale)
+                                );
+                                
+                                // 진행률 (0.0 = 가장 오래된 점, 1.0 = 최신 점)
+                                var progress = (float)i / (recentPath.Count - 1);
+                                
+                                // 알파값 계산 (뒤쪽부터 서서히 사라짐)
+                                var alpha = Math.Max(0.1f, progress * progress); // 제곱으로 더 부드러운 페이드아웃
+                                
+                                // 두께 계산 (앞쪽이 더 두껍게)
+                                var thickness = Math.Max(1, (int)(4 * progress + 1));
+                                
+                                // 색상에 알파값 적용 (BGR에서 투명도는 별도 처리)
+                                var fadeColor = new Scalar(
+                                    pathColor.Val0 * alpha,  // B
+                                    pathColor.Val1 * alpha,  // G  
+                                    pathColor.Val2 * alpha   // R
+                                );
+                                
+                                // 선 그리기
+                                Cv2.Line(drawFrame, startPoint, endPoint, fadeColor, thickness);
+                                
+                                // 추가적으로 각 점에 작은 원 그리기 (더 부드러운 연결)
+                                if (progress > 0.3f) // 너무 오래된 점은 원 생략
+                                {
+                                    var pointRadius = Math.Max(1, (int)(3 * progress));
+                                    Cv2.Circle(drawFrame, endPoint, pointRadius, fadeColor, -1);
+                                }
+                            }
                         }
-                        
-                        // 현재 위치에 원과 ID 표시
-                        if (recentPath.Any() && _trackingConfig.ShowTrackingId)
-                        {
-                            var currentPos = recentPath.Last();
-                            var centerPoint = new Point((int)currentPos.X, (int)currentPos.Y);
-                            Cv2.Circle(trackedFrame, centerPoint, 5, pathColor, -1);
-                            
-                            var idText = $"#{person.TrackingId}";
-                            var textPos = new Point((int)currentPos.X + 10, (int)currentPos.Y - 10);
-                            Cv2.PutText(trackedFrame, idText, textPos, HersheyFonts.HersheySimplex, 
-                                      0.6, new Scalar(255, 255, 255), 2);
-                        }
+                    }
+                    
+                    // 현재 위치와 ID 표시 (체크박스 설정에 따라)
+                    var centerPoint = new Point(
+                        (int)(person.BoundingBox.X + person.BoundingBox.Width / 2) / 2, // 0.5 스케일 적용
+                        (int)(person.BoundingBox.Y + person.BoundingBox.Height / 2) / 2
+                    );
+                    
+                    // 현재 위치에 원 표시 (항상)
+                    Cv2.Circle(drawFrame, centerPoint, 5, pathColor, -1);
+                    
+                    // ID 표시 (체크박스 확인)
+                    if (ShowTrackingIds)
+                    {
+                        var idText = $"#{person.TrackingId}";
+                        var textPos = new Point(centerPoint.X + 10, centerPoint.Y - 10);
+                        Cv2.PutText(drawFrame, idText, textPos, HersheyFonts.HersheySimplex, 
+                                  0.6, new Scalar(255, 255, 255), 2);
                     }
                 }
                 
-                // 검출 박스는 CameraService에서 이미 그려짐
-                // 여기서는 추적 ID만 추가 표시 (필요한 경우)
-                
-                return trackedFrame;
+                return drawFrame;
             }
             catch (Exception ex)
             {

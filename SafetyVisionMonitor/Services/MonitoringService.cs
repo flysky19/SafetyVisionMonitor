@@ -17,18 +17,23 @@ namespace SafetyVisionMonitor.Services
         private readonly CancellationTokenSource _cancellationTokenSource = new();
         private readonly DispatcherTimer _performanceTimer;
         private readonly SafetyDetectionService _safetyDetection;
+        private readonly BackgroundTrackingService _trackingService;
         private Task? _monitoringTask;
         
         // 이벤트
         public event EventHandler<PerformanceMetrics>? PerformanceUpdated;
         public event EventHandler<DetectionResult>? ObjectDetected;
         public event EventHandler<SafetyEvent>? SafetyEventOccurred;
+        public event EventHandler<TrackingUpdateEventArgs>? TrackingUpdated;
+        public event EventHandler<TrackingStatisticsEventArgs>? TrackingStatisticsUpdated;
         
         // 상태
         public bool IsRunning { get; private set; }
         public int ProcessedFramesPerSecond { get; private set; }
         public int DetectedPersonCount { get; private set; }
         public int ActiveAlertsCount { get; private set; }
+        public int ActiveTrackersCount => _trackingService.TotalActiveTrackers;
+        public int TotalTrackersCreated => _trackingService.TotalTrackersCreated;
         
         // 성능 카운터
         private readonly PerformanceCounter? _cpuCounter;
@@ -42,6 +47,7 @@ namespace SafetyVisionMonitor.Services
             _currentProcess = Process.GetCurrentProcess();
             _gpuCounters = new List<PerformanceCounter>();
             _safetyDetection = new SafetyDetectionService(App.DatabaseService);
+            _trackingService = new BackgroundTrackingService();
             
             try
             {
@@ -86,6 +92,10 @@ namespace SafetyVisionMonitor.Services
             // 안전 감시 이벤트 구독
             _safetyDetection.SafetyEventDetected += OnSafetyEventDetected;
             _safetyDetection.ZoneViolationDetected += OnZoneViolationDetected;
+            
+            // 추적 서비스 이벤트 구독
+            _trackingService.TrackingUpdated += OnTrackingUpdated;
+            _trackingService.StatisticsUpdated += OnTrackingStatisticsUpdated;
             
             // 자동 카메라 연결
             await ConnectCamerasAsync();
@@ -198,21 +208,25 @@ namespace SafetyVisionMonitor.Services
         {
             try
             {
-                // 검출된 객체에 대해 안전 검사 수행
-                var safetyResult = await _safetyDetection.CheckSafetyAsync(e.CameraId, e.Detections);
+                // 1. 추적 처리 (검출 결과에 트래킹 ID 적용)
+                var detectionsList = e.Detections.ToList();
+                var trackedPersons = _trackingService.ProcessDetections(e.CameraId, detectionsList);
                 
-                // 통계 업데이트
+                // 2. 검출된 객체에 대해 안전 검사 수행 (추적 ID가 적용된 검출 결과로)
+                var safetyResult = await _safetyDetection.CheckSafetyAsync(e.CameraId, detectionsList.ToArray());
+                
+                // 3. 통계 업데이트
                 DetectedPersonCount = safetyResult.TotalPersons;
                 ActiveAlertsCount = safetyResult.Violations.Count;
                 
-                // 기존 이벤트도 발생 (하위 호환성)
-                foreach (var detection in e.Detections)
+                // 4. 기존 이벤트도 발생 (하위 호환성) - 추적 ID가 포함된 검출 결과
+                foreach (var detection in detectionsList)
                 {
                     ObjectDetected?.Invoke(this, detection);
                 }
                 
                 Debug.WriteLine($"MonitoringService: {e.CameraId} - {e.Detections.Length} objects detected, " +
-                              $"{safetyResult.Violations.Count} violations");
+                              $"{trackedPersons.Count} tracked, {safetyResult.Violations.Count} violations");
             }
             catch (Exception ex)
             {
@@ -672,6 +686,54 @@ namespace SafetyVisionMonitor.Services
             
             // 안전 감시 서비스 정리
             _safetyDetection?.Dispose();
+            
+            // 추적 서비스 정리
+            _trackingService?.Dispose();
+        }
+        
+        /// <summary>
+        /// 추적 업데이트 이벤트 처리
+        /// </summary>
+        private void OnTrackingUpdated(object? sender, TrackingUpdateEventArgs e)
+        {
+            try
+            {
+                // 추적 이벤트를 UI로 전파
+                TrackingUpdated?.Invoke(this, e);
+                
+                Debug.WriteLine($"MonitoringService: Tracking updated for {e.CameraId} - {e.TrackedPersons.Count} active tracks");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"MonitoringService: Tracking update handling error: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 추적 통계 업데이트 이벤트 처리
+        /// </summary>
+        private void OnTrackingStatisticsUpdated(object? sender, TrackingStatisticsEventArgs e)
+        {
+            try
+            {
+                // 추적 통계를 UI로 전파
+                TrackingStatisticsUpdated?.Invoke(this, e);
+                
+                Debug.WriteLine($"MonitoringService: Tracking statistics - {e.Statistics.ActiveTrackerCount} active, " +
+                              $"{e.Statistics.TotalTrackersCreated} total created");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"MonitoringService: Tracking statistics handling error: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 백그라운드 추적 서비스 접근
+        /// </summary>
+        public BackgroundTrackingService GetTrackingService()
+        {
+            return _trackingService;
         }
     }
     

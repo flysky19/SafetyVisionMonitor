@@ -27,7 +27,7 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         public List<TrackedPerson> UpdateTracking(List<DetectionResult> detections, string cameraId)
         {
-            var personDetections = detections.Where(d => d.ClassName == "person").ToList();
+            var personDetections = detections.Where(d => d.ClassName?.ToLower()?.Contains("person") == true).ToList();
             var trackedPersons = new List<TrackedPerson>();
 
             // 1. 기존 추적자와 새 검출 매칭
@@ -220,8 +220,9 @@ namespace SafetyVisionMonitor.Services
             var center = GetCenter(CurrentBox);
             _positionHistory.Enqueue(center);
             
-            // 히스토리 길이 제한
-            while (_positionHistory.Count > _config.TrackHistoryLength)
+            // 히스토리 길이 제한 (더 긴 꼬리를 위해)
+            var maxHistoryLength = Math.Max(_config.TrackHistoryLength, 100); // 최소 100개 점 유지
+            while (_positionHistory.Count > maxHistoryLength)
                 _positionHistory.Dequeue();
 
             // 다음 프레임 위치 예측 (단순 선형 예측)
@@ -337,10 +338,10 @@ namespace SafetyVisionMonitor.Services
         public float SimilarityThreshold { get; set; } = 0.7f;
         public bool EnableReIdentification { get; set; } = true;
         public bool EnableMultiCameraTracking { get; set; } = true;
-        public int TrackHistoryLength { get; set; } = 50;
+        public int TrackHistoryLength { get; set; } = 100;
         public bool ShowTrackingId { get; set; } = true;
         public bool ShowTrackingPath { get; set; } = true;
-        public int PathDisplayLength { get; set; } = 20;
+        public int PathDisplayLength { get; set; } = 60;
         public bool AutoSaveTracking { get; set; } = true;
         public int AutoSaveInterval { get; set; } = 60;
         public string TrackingMethod { get; set; } = "SORT";

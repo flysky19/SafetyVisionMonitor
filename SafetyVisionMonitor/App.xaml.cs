@@ -29,6 +29,9 @@ public partial class App : Application
     // AI 서비스
     public static AIInferenceService AIInferenceService { get; private set; } = null!;
     public static AIProcessingPipeline AIPipeline { get; private set; } = null!;
+    
+    // 백그라운드 추적 서비스 (MonitoringService를 통해 접근)
+    public static BackgroundTrackingService TrackingService => MonitoringService.GetTrackingService();
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -73,9 +76,9 @@ public partial class App : Application
             Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense(
                 "Ngo9BigBOggjHTQxAR8/V1JEaF5cXmRCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdmWXhccnRVR2ddVU12XENWYEk=");
 
-            // 모니터링 서비스 시작
-            splash.UpdateStatus("모니터링 서비스 시작 중...");
-            await MonitoringService.StartAsync();
+            // 백그라운드 모니터링 및 추적 서비스 시작
+            splash.UpdateStatus("백그라운드 서비스 시작 중...");
+            await MonitoringService.StartAsync(); // 추적 서비스도 함께 시작됨
 
             splash.UpdateStatus("시작 중...");
             await Task.Delay(500); // 잠시 대기
