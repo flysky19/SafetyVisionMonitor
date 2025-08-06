@@ -35,6 +35,10 @@ namespace SafetyVisionMonitor.ViewModels
         [ObservableProperty]
         private string currentTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
         
+        // DashboardViewModel에 대한 직접 참조
+        public DashboardViewModel? DashboardViewModel => 
+            _viewModels.TryGetValue("Dashboard", out var vm) ? vm as DashboardViewModel : null;
+        
         public MainViewModel()
         {
             // 모든 ViewModel을 미리 생성하여 저장
@@ -43,6 +47,7 @@ namespace SafetyVisionMonitor.ViewModels
                  ["Dashboard"] = new DashboardViewModel(),
                  ["CameraManage"] = new CameraManageViewModel(),
                  ["AIModel"] = new AIModelViewModel(),
+                 ["ModelConversion"] = new ModelConversionViewModel(),
                  ["ZoneSetup"] = new ZoneSetupViewModel(),
                  ["History"] = new HistoryViewModel(),
                  ["EventLog"] = new EventLogViewModel(),

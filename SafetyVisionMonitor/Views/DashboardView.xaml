@@ -25,34 +25,46 @@
             <Border Grid.Row="0" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,0,0,10">
                 <Grid>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="실시간 카메라 모니터링" FontSize="16" FontWeight="Bold" Foreground="White"/>
+                        <TextBlock Text="카메라 모니터링" FontSize="16" FontWeight="Bold" Foreground="White"/>
                         <TextBlock Text=" - " Foreground="Gray" Margin="10,0"/>
                         <TextBlock Text="{Binding Cameras.Count}" Foreground="White"/>
                         <TextBlock Text="대 연결됨" Foreground="Gray"/>
                     </StackPanel>
                     
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="테스트 이미지" 
-                                Command="{Binding TestCameraDisplayCommand}"
-                                Margin="0,0,5,0"/>
-                        <Button Content="직접 캡처" 
-                                Command="{Binding TestDirectCameraCaptureCommand}"
-                                Margin="0,0,15,0"/>
+                        <!-- <Button Content="테스트 이미지"  -->
+                        <!--         Command="{Binding TestCameraDisplayCommand}" -->
+                        <!--         Margin="0,0,5,0"/> -->
+                        <!-- <Button Content="직접 캡처"  -->
+                        <!--         Command="{Binding TestDirectCameraCaptureCommand}" -->
+                        <!--         Margin="0,0,15,0"/> -->
+                        <!-- -->
+                        <!-- <Button Content="직접 캡처(2)"  -->
+                        <!--         Command="{Binding TestCameraDirectly}" -->
+                        <!--         Margin="0,0,5,0"/> -->
                         
-                        <Button Content="직접 캡처(2)" 
-                                Command="{Binding TestCameraDirectly}"
-                                Margin="0,0,5,0"/>
-                        
-                        <Button Content="구역 새로고침" 
-                                Command="{Binding RefreshZoneOverlaysCommand}"
-                                Margin="0,0,15,0"/>
+                        <!-- <Button Content="구역 새로고침"  -->
+                        <!--         Command="{Binding RefreshZoneOverlaysCommand}" -->
+                        <!--         Margin="0,0,15,0"/> -->
                         
                         <CheckBox Content="경고구역 표시" 
                                   IsChecked="{Binding ShowWarningZones}"
                                   Foreground="Orange" Margin="0,0,15,0"/>
                         <CheckBox Content="위험구역 표시" 
                                 IsChecked="{Binding ShowDangerZones}"
-                                Foreground="Red"/>
+                                Foreground="Red" Margin="0,0,15,0"/>
+                        
+                        <!-- 디버그 옵션 -->
+                        <Separator Background="#444" Height="1" Margin="15,5"/>
+                        <CheckBox Content="모든 검출 항목 표시" 
+                                  IsChecked="{Binding ShowAllDetections}"
+                                  Foreground="Yellow" Margin="0,5,15,0"/>
+                        <CheckBox Content="상세 정보 표시" 
+                                  IsChecked="{Binding ShowDetailedInfo}"
+                                  Foreground="Cyan" Margin="0,0,15,0"/>
+                        <CheckBox Content="검출 통계 표시" 
+                                  IsChecked="{Binding ShowDetectionStats}"
+                                  Foreground="LightGreen"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -141,6 +153,7 @@
                                 <RowDefinition Height="25"/>
                                 <RowDefinition Height="25"/>
                                 <RowDefinition Height="25"/>
+                                <RowDefinition Height="25"/>
                                 <RowDefinition Height="35"/>
                             </Grid.RowDefinitions>
                             
@@ -155,12 +168,21 @@
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="상태:" Foreground="Gray"/>
                             <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0">
                                 <Ellipse Width="10" Height="10" 
-                                       Fill="{Binding IsModelRunning, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                <TextBlock Text="{Binding IsModelRunning, Converter={StaticResource BooleanToVisibilityConverter}}" 
+                                       Fill="{Binding IsModelRunning, Converter={StaticResource BoolToColorConverter}}"/>
+                                <TextBlock Text="{Binding ModelStatusText}" 
                                          Foreground="White" Margin="5,0,0,0"/>
                             </StackPanel>
                             
-                            <syncfusion:ButtonAdv Grid.Row="3" Grid.ColumnSpan="2" 
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="실행환경:" Foreground="Gray"/>
+                            <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0">
+                                <TextBlock Text="{Binding ExecutionProvider}" 
+                                         Foreground="{Binding IsUsingGpu, Converter={StaticResource BoolToColorConverter}}"
+                                         FontWeight="SemiBold"/>
+                                <TextBlock Text=" (고속)" Foreground="LightGreen" FontSize="11"
+                                         Visibility="{Binding IsUsingGpu, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                            </StackPanel>
+                            
+                            <syncfusion:ButtonAdv Grid.Row="4" Grid.ColumnSpan="2" 
                                                Label="{Binding IsModelRunning, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                Command="{Binding ToggleAIModelCommand}"
                                                HorizontalAlignment="Center" Margin="0,5,0,0"/>
@@ -336,7 +358,7 @@
                 </Border>
                 
                 <!-- 실시간 통계 -->
-                <Border Background="#2D2D30" CornerRadius="5" Padding="15">
+                <Border Background="#2D2D30" CornerRadius="5" Padding="15" Margin="0,0,0,10">
                     <StackPanel>
                         <TextBlock Text="실시간 통계" FontSize="14" FontWeight="Bold" 
                                  Foreground="White" Margin="0,0,0,10"/>
@@ -364,6 +386,52 @@
                             <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ActiveAlertsCount}" 
                                      Foreground="Orange" FontWeight="Bold"/>
                         </Grid>
+                    </StackPanel>
+                </Border>
+                
+                <!-- 디버그 패널 -->
+                <Border Background="#2D2D30" CornerRadius="5" Padding="15" 
+                        Visibility="{Binding ShowDetectionStats, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel>
+                        <TextBlock Text="검출 디버그 정보" FontSize="14" FontWeight="Bold" 
+                                 Foreground="LightGreen" Margin="0,0,0,10"/>
+                        
+                        <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding DebugDetectionInfo}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#333" CornerRadius="3" Padding="5" Margin="0,2">
+                                            <StackPanel>
+                                                <TextBlock Foreground="White" FontWeight="SemiBold">
+                                                    <Run Text="{Binding ClassName}"/>
+                                                    <Run Text=" - "/>
+                                                    <Run Text="{Binding Confidence, StringFormat=P1}" Foreground="Yellow"/>
+                                                </TextBlock>
+                                                <TextBlock Foreground="Gray" FontSize="11">
+                                                    <Run Text="위치: ("/>
+                                                    <Run Text="{Binding BoundingBox.X, StringFormat=F0}"/>
+                                                    <Run Text=", "/>
+                                                    <Run Text="{Binding BoundingBox.Y, StringFormat=F0}"/>
+                                                    <Run Text=") 크기: "/>
+                                                    <Run Text="{Binding BoundingBox.Width, StringFormat=F0}"/>
+                                                    <Run Text="x"/>
+                                                    <Run Text="{Binding BoundingBox.Height, StringFormat=F0}"/>
+                                                </TextBlock>
+                                                <TextBlock Foreground="Gray" FontSize="11" 
+                                                         Visibility="{Binding DataContext.ShowDetailedInfo, 
+                                                                    RelativeSource={RelativeSource AncestorType=UserControl}, 
+                                                                    Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                    <Run Text="카메라: "/>
+                                                    <Run Text="{Binding CameraId}"/>
+                                                    <Run Text=" | 시간: "/>
+                                                    <Run Text="{Binding Timestamp, StringFormat=HH:mm:ss.fff}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </StackPanel>
                 </Border>
             </StackPanel>

@@ -2,9 +2,14 @@
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Linq;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Services;
+using SafetyVisionMonitor.Database;
+using Microsoft.Win32;
 
 namespace SafetyVisionMonitor.ViewModels
 {
@@ -64,44 +69,61 @@ namespace SafetyVisionMonitor.ViewModels
             TrackingZones = new ObservableCollection<TrackingZone>();
             TrackingMethods = new ObservableCollection<string> 
             { 
-                "DeepSORT", 
                 "SORT", 
+                "DeepSORT", 
                 "ByteTrack", 
                 "StrongSORT" 
             };
             
-            LoadSampleData();
+            LoadSettingsFromDatabase();
         }
         
-        private void LoadSampleData()
+        private async void LoadSettingsFromDatabase()
         {
-            // 샘플 트래킹 구역
-            TrackingZones.Add(new TrackingZone
+            try
             {
-                Id = "TZ001",
-                Name = "출입구 구역",
-                IsEntryZone = true,
-                IsExitZone = true,
-                CountingEnabled = true
-            });
-            
-            TrackingZones.Add(new TrackingZone
+                // 추적 설정 로드
+                var config = await App.DatabaseService.LoadTrackingConfigAsync();
+                if (config != null)
+                {
+                    IsTrackingEnabled = config.IsEnabled;
+                    MaxTrackingDistance = config.MaxTrackingDistance;
+                    MaxDisappearFrames = config.MaxDisappearFrames;
+                    IouThreshold = config.IouThreshold;
+                    SimilarityThreshold = config.SimilarityThreshold;
+                    EnableReIdentification = config.EnableReIdentification;
+                    EnableMultiCameraTracking = config.EnableMultiCameraTracking;
+                    TrackHistoryLength = config.TrackHistoryLength;
+                    ShowTrackingId = config.ShowTrackingId;
+                    ShowTrackingPath = config.ShowTrackingPath;
+                    PathDisplayLength = config.PathDisplayLength;
+                    AutoSaveTracking = config.AutoSaveTracking;
+                    AutoSaveInterval = config.AutoSaveInterval;
+                    SelectedTrackingMethod = config.TrackingMethod;
+                }
+
+                // 추적 구역 로드
+                var zones = await App.DatabaseService.LoadTrackingZonesAsync();
+                TrackingZones.Clear();
+                foreach (var zone in zones)
+                {
+                    TrackingZones.Add(new TrackingZone
+                    {
+                        Id = zone.ZoneId,
+                        Name = zone.Name,
+                        IsEntryZone = zone.IsEntryZone,
+                        IsExitZone = zone.IsExitZone,
+                        CountingEnabled = zone.CountingEnabled
+                    });
+                }
+
+                StatusMessage = "설정을 불러왔습니다.";
+            }
+            catch (Exception ex)
             {
-                Id = "TZ002",
-                Name = "작업장 A",
-                IsEntryZone = false,
-                IsExitZone = false,
-                CountingEnabled = false
-            });
-            
-            TrackingZones.Add(new TrackingZone
-            {
-                Id = "TZ003",
-                Name = "통로",
-                IsEntryZone = false,
-                IsExitZone = false,
-                CountingEnabled = true
-            });
+                System.Diagnostics.Debug.WriteLine($"설정 로드 실패: {ex.Message}");
+                StatusMessage = "설정 로드에 실패했습니다.";
+            }
         }
         
         [RelayCommand]
@@ -111,8 +133,42 @@ namespace SafetyVisionMonitor.ViewModels
             
             try
             {
-                // TODO: 설정 저장 로직
-                await Task.Delay(500); // 시뮬레이션
+                // 추적 설정 저장
+                var config = new TrackingConfig
+                {
+                    IsEnabled = IsTrackingEnabled,
+                    MaxTrackingDistance = MaxTrackingDistance,
+                    MaxDisappearFrames = MaxDisappearFrames,
+                    IouThreshold = IouThreshold,
+                    SimilarityThreshold = SimilarityThreshold,
+                    EnableReIdentification = EnableReIdentification,
+                    EnableMultiCameraTracking = EnableMultiCameraTracking,
+                    TrackHistoryLength = TrackHistoryLength,
+                    ShowTrackingId = ShowTrackingId,
+                    ShowTrackingPath = ShowTrackingPath,
+                    PathDisplayLength = PathDisplayLength,
+                    AutoSaveTracking = AutoSaveTracking,
+                    AutoSaveInterval = AutoSaveInterval,
+                    TrackingMethod = SelectedTrackingMethod,
+                    LastModified = DateTime.Now
+                };
+                
+                await App.DatabaseService.SaveTrackingConfigAsync(config);
+                
+                // 추적 구역 저장
+                var zoneConfigs = TrackingZones.Select(z => new TrackingZoneConfig
+                {
+                    ZoneId = z.Id,
+                    Name = z.Name,
+                    IsEntryZone = z.IsEntryZone,
+                    IsExitZone = z.IsExitZone,
+                    CountingEnabled = z.CountingEnabled,
+                    PolygonJson = "{}", // TODO: 실제 좌표 데이터
+                    CameraId = "default",
+                    CreatedTime = DateTime.Now
+                }).ToList();
+                
+                await App.DatabaseService.SaveTrackingZonesAsync(zoneConfigs);
                 
                 MessageBox.Show("트래킹 설정이 저장되었습니다.", "저장 완료",
                     MessageBoxButton.OK, MessageBoxImage.Information);
@@ -174,15 +230,28 @@ namespace SafetyVisionMonitor.ViewModels
         }
         
         [RelayCommand]
-        private void DeleteTrackingZone(TrackingZone zone)
+        private async Task DeleteTrackingZone(TrackingZone zone)
         {
             var result = MessageBox.Show($"'{zone.Name}' 구역을 삭제하시겠습니까?", "확인",
                 MessageBoxButton.YesNo, MessageBoxImage.Question);
                 
             if (result == MessageBoxResult.Yes)
             {
-                TrackingZones.Remove(zone);
-                StatusMessage = $"'{zone.Name}' 구역이 삭제되었습니다.";
+                try
+                {
+                    // 데이터베이스에서 삭제
+                    await App.DatabaseService.DeleteTrackingZoneAsync(zone.Id);
+                    
+                    // UI에서 제거
+                    TrackingZones.Remove(zone);
+                    StatusMessage = $"'{zone.Name}' 구역이 삭제되었습니다.";
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"구역 삭제 중 오류 발생: {ex.Message}", "오류",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    StatusMessage = $"구역 삭제 실패: {ex.Message}";
+                }
             }
         }
         
@@ -194,14 +263,46 @@ namespace SafetyVisionMonitor.ViewModels
             
             try
             {
-                // TODO: 트래킹 테스트 로직
-                await Task.Delay(2000); // 시뮬레이션
+                // 트래킹 설정 검증
+                var config = new TrackingConfiguration
+                {
+                    IsEnabled = IsTrackingEnabled,
+                    MaxTrackingDistance = MaxTrackingDistance,
+                    MaxDisappearFrames = MaxDisappearFrames,
+                    IouThreshold = (float)IouThreshold,
+                    SimilarityThreshold = (float)SimilarityThreshold,
+                    EnableReIdentification = EnableReIdentification,
+                    EnableMultiCameraTracking = EnableMultiCameraTracking,
+                    TrackHistoryLength = TrackHistoryLength,
+                    ShowTrackingId = ShowTrackingId,
+                    ShowTrackingPath = ShowTrackingPath,
+                    PathDisplayLength = PathDisplayLength,
+                    TrackingMethod = SelectedTrackingMethod
+                };
                 
-                MessageBox.Show("트래킹 테스트가 완료되었습니다.\n" +
-                              "현재 설정으로 정상 작동합니다.", "테스트 완료",
+                // 트래킹 서비스 인스턴스 생성 테스트
+                var trackingService = new PersonTrackingService(config);
+                var stats = trackingService.GetStatistics();
+                
+                await Task.Delay(1000); // UI 업데이트 시간 확보
+                
+                var message = $"트래킹 테스트가 완료되었습니다.\n\n" +
+                              $"설정 검증 결과:\n" +
+                              $"- 트래킹 방식: {SelectedTrackingMethod}\n" +
+                              $"- IOU 임계값: {IouThreshold:F2}\n" +
+                              $"- 최대 사라짐 프레임: {MaxDisappearFrames}\n" +
+                              $"- 다중 카메라 지원: {(EnableMultiCameraTracking ? "활성화" : "비활성화")}";
+                
+                MessageBox.Show(message, "테스트 완료",
                               MessageBoxButton.OK, MessageBoxImage.Information);
                               
-                StatusMessage = "트래킹 테스트 완료";
+                StatusMessage = "트래킹 테스트 완료 - 설정이 유효합니다.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"테스트 중 오류 발생: {ex.Message}", "오류",
+                              MessageBoxButton.OK, MessageBoxImage.Error);
+                StatusMessage = $"테스트 실패: {ex.Message}";
             }
             finally
             {
@@ -210,10 +311,82 @@ namespace SafetyVisionMonitor.ViewModels
         }
         
         [RelayCommand]
-        private void ExportTrackingData()
+        private async Task ExportTrackingData()
         {
-            // TODO: 트래킹 데이터 내보내기
-            StatusMessage = "트래킹 데이터를 내보냈습니다.";
+            try
+            {
+                var saveDialog = new SaveFileDialog
+                {
+                    Title = "트래킹 데이터 내보내기",
+                    Filter = "JSON 파일 (*.json)|*.json|CSV 파일 (*.csv)|*.csv",
+                    FileName = $"tracking_data_{DateTime.Now:yyyyMMdd_HHmmss}"
+                };
+                
+                if (saveDialog.ShowDialog() == true)
+                {
+                    IsLoading = true;
+                    StatusMessage = "트래킹 데이터를 내보내는 중...";
+                    
+                    // 현재 설정 데이터 수집
+                    var exportData = new
+                    {
+                        ExportTime = DateTime.Now,
+                        TrackingSettings = new
+                        {
+                            IsEnabled = IsTrackingEnabled,
+                            Method = SelectedTrackingMethod,
+                            MaxTrackingDistance = MaxTrackingDistance,
+                            MaxDisappearFrames = MaxDisappearFrames,
+                            IouThreshold = IouThreshold,
+                            SimilarityThreshold = SimilarityThreshold,
+                            EnableReIdentification = EnableReIdentification,
+                            EnableMultiCameraTracking = EnableMultiCameraTracking,
+                            TrackHistoryLength = TrackHistoryLength,
+                            ShowTrackingId = ShowTrackingId,
+                            ShowTrackingPath = ShowTrackingPath,
+                            PathDisplayLength = PathDisplayLength,
+                            AutoSaveTracking = AutoSaveTracking,
+                            AutoSaveInterval = AutoSaveInterval
+                        },
+                        TrackingZones = TrackingZones.ToList()
+                    };
+                    
+                    string content;
+                    if (saveDialog.FilterIndex == 1) // JSON
+                    {
+                        content = JsonSerializer.Serialize(exportData, new JsonSerializerOptions { WriteIndented = true });
+                    }
+                    else // CSV
+                    {
+                        content = "Setting,Value\n";
+                        content += $"IsEnabled,{IsTrackingEnabled}\n";
+                        content += $"Method,{SelectedTrackingMethod}\n";
+                        content += $"MaxTrackingDistance,{MaxTrackingDistance}\n";
+                        content += $"MaxDisappearFrames,{MaxDisappearFrames}\n";
+                        content += $"IouThreshold,{IouThreshold}\n";
+                        content += $"SimilarityThreshold,{SimilarityThreshold}\n";
+                        content += $"ZoneCount,{TrackingZones.Count}\n";
+                    }
+                    
+                    await System.IO.File.WriteAllTextAsync(saveDialog.FileName, content);
+                    
+                    MessageBox.Show($"트래킹 데이터가 성공적으로 내보내졌습니다.\n\n파일: {saveDialog.FileName}", 
+                                    "내보내기 완료",
+                                    MessageBoxButton.OK, MessageBoxImage.Information);
+                                    
+                    StatusMessage = "트래킹 데이터 내보내기 완료";
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"내보내기 중 오류 발생: {ex.Message}", "오류",
+                              MessageBoxButton.OK, MessageBoxImage.Error);
+                StatusMessage = $"내보내기 실패: {ex.Message}";
+            }
+            finally
+            {
+                IsLoading = false;
+            }
         }
     }
     

@@ -5,7 +5,8 @@
       "Bash(tree:*)",
       "Bash(dotnet build:*)",
       "Bash(rg:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(msbuild:*)"
     ],
     "deny": []
   }

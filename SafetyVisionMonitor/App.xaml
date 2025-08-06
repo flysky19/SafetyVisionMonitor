@@ -44,6 +44,10 @@
                 <views:AIModelView/>
             </DataTemplate>
             
+            <DataTemplate DataType="{x:Type vm:ModelConversionViewModel}">
+                <views:ModelConversionView/>
+            </DataTemplate>
+            
             <DataTemplate DataType="{x:Type vm:ZoneSetupViewModel}">
                 <views:ZoneSetupView/>
             </DataTemplate>

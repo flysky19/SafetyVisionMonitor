@@ -49,7 +49,7 @@ namespace SafetyVisionMonitor.ViewModels
             EventTypes = new ObservableCollection<string> { "전체", "NoHelmet", "DangerZone", "WarningZone", "Fall" };
             Cameras = new ObservableCollection<string> { "전체", "CAM001", "CAM002", "CAM003", "CAM004" };
             
-            LoadSampleData();
+            //LoadSampleData();
         }
         
         public override async void OnLoaded()

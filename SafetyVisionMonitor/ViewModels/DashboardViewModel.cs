@@ -16,6 +16,7 @@ using SafetyVisionMonitor.Helpers;
 using SafetyVisionMonitor.Models;
 using SafetyVisionMonitor.Services;
 using SafetyVisionMonitor.ViewModels.Base;
+using Rect = OpenCvSharp.Rect;
 
 namespace SafetyVisionMonitor.ViewModels
 {
@@ -24,6 +25,12 @@ namespace SafetyVisionMonitor.ViewModels
         private DispatcherTimer _updateTimer;
         private readonly Dictionary<string, BitmapSource?> _cameraFrames = new();
         private object _frameLock = new();
+        
+        // 추적 관련
+        private PersonTrackingService? _trackingService;
+        private TrackingConfiguration? _trackingConfig;
+        private readonly Dictionary<string, List<TrackedPerson>> _trackedPersons = new();
+        private readonly Dictionary<string, List<DetectionResult>> _latestDetections = new();
         
         // 카메라 관련
         [ObservableProperty]
@@ -35,6 +42,20 @@ namespace SafetyVisionMonitor.ViewModels
         
         [ObservableProperty]
         private bool showDangerZones = true;
+        
+        // 디버그 옵션
+        [ObservableProperty]
+        private bool showAllDetections = false;
+        
+        [ObservableProperty]
+        private bool showDetailedInfo = false;
+        
+        [ObservableProperty]
+        private bool showDetectionStats = false;
+        
+        // 정적 속성으로 디버그 설정 공유
+        public static bool StaticShowAllDetections { get; private set; }
+        public static bool StaticShowDetailedInfo { get; private set; }
         
         // 카메라별 3D 구역 데이터 - Dictionary로 카메라별 관리
         private readonly Dictionary<string, ObservableCollection<ZoneVisualization>> _cameraWarningZones = new();
@@ -56,6 +77,15 @@ namespace SafetyVisionMonitor.ViewModels
         
         [ObservableProperty]
         private bool isModelRunning = false;
+        
+        [ObservableProperty]
+        private string modelStatusText = "미실행";
+        
+        [ObservableProperty]
+        private string executionProvider = "CPU";
+        
+        [ObservableProperty]
+        private bool isUsingGpu = false;
         
         [ObservableProperty]
         private double modelConfidence = 0.7;
@@ -104,6 +134,12 @@ namespace SafetyVisionMonitor.ViewModels
         [ObservableProperty]
         private int activeAlertsCount = 0;
         
+        // 디버그 정보
+        [ObservableProperty]
+        private ObservableCollection<DetectionResult> debugDetectionInfo = new();
+        
+        private readonly object _debugLock = new object();
+        
         public DashboardViewModel()
         {
             Title = "실시간 모니터링 대시보드";
@@ -120,7 +156,11 @@ namespace SafetyVisionMonitor.ViewModels
                 };
                 Cameras.Add(cameraVm);
                 _cameraFrames[camera.Id] = null;
+                _trackedPersons[camera.Id] = new List<TrackedPerson>();
             }
+            
+            // 추적 설정 로드 및 서비스 초기화
+            LoadTrackingConfiguration();
         }
         
         public override void OnLoaded()
@@ -131,6 +171,12 @@ namespace SafetyVisionMonitor.ViewModels
             App.CameraService.FrameReceivedForUI += OnFrameReceived;
             App.CameraService.ConnectionChanged += OnConnectionChanged;
             App.MonitoringService.PerformanceUpdated += OnPerformanceUpdated;
+            
+            // AI 검출 이벤트 구독 (디버그용)
+            if (App.AIPipeline != null)
+            {
+                App.AIPipeline.ObjectDetected += OnObjectDetectedForDebug;
+            }
             
             // 구역 업데이트 이벤트 구독
             App.AppData.ZoneUpdated += OnZoneUpdated;
@@ -314,14 +360,22 @@ namespace SafetyVisionMonitor.ViewModels
                         {
                             if (originalFrame != null && !originalFrame.Empty())
                             {
+                                // 디버그: 프레임 크기 정보 출력 (첫 번째 프레임에만)
+                                // System.Diagnostics.Debug.WriteLine($"UI Frame for camera {e.CameraId}: Size=({originalFrame.Width}x{originalFrame.Height})");
+                                
                                 // 프레임에 구역 오버레이 그리기
                                 var frameWithZones = DrawZoneOverlaysOnFrame(originalFrame, e.CameraId);
                                 
-                                // UI 스레드에서 BitmapSource 변환
-                                var bitmap = ImageConverter.MatToBitmapSource(frameWithZones);
+                                // 추적 정보 그리기 (최신 검출 결과 사용)
+                                var latestDetections = _latestDetections.GetValueOrDefault(e.CameraId, new List<DetectionResult>());
+                                var finalFrame = DrawTrackingOverlaysOnFrame(frameWithZones, e.CameraId, latestDetections);
                                 
-                                // 그려진 프레임 해제
+                                // UI 스레드에서 BitmapSource 변환
+                                var bitmap = ImageConverter.MatToBitmapSource(finalFrame);
+                                
+                                // 그려진 프레임들 해제
                                 frameWithZones.Dispose();
+                                if (finalFrame != frameWithZones) finalFrame.Dispose();
         
                                 if (bitmap != null)
                                 {
@@ -512,6 +566,12 @@ namespace SafetyVisionMonitor.ViewModels
                     AiModelVersion = activeModel.ModelVersion;
                     IsModelRunning = App.MonitoringService.IsRunning;
                     ModelConfidence = activeModel.DefaultConfidence;
+                    
+                    // AI 실행 환경 정보 업데이트
+                    IsUsingGpu = metrics.IsUsingGpu;
+                    ExecutionProvider = App.AIInferenceService?.ExecutionProvider;
+
+                    ModelStatusText = IsModelRunning ? "실행 중" : "미실행";
                 }
             });
         }
@@ -524,6 +584,62 @@ namespace SafetyVisionMonitor.ViewModels
             MemoryUsage = Random.Shared.Next(40, 70);
             ProcessedFps = Random.Shared.Next(20, 30);
             DetectedPersonCount = Random.Shared.Next(0, 10);
+        }
+        
+        private void OnObjectDetectedForDebug(object? sender, ObjectDetectionEventArgs e)
+        {
+            // 최신 검출 결과 업데이트 (추적에 사용)
+            _latestDetections[e.CameraId] = e.Detections.ToList();
+            
+            // 디버그: 검출 결과 좌표 정보 출력 (필요시에만)
+            // if (e.Detections.Length > 0)
+            // {
+            //     var firstDetection = e.Detections[0];
+            //     System.Diagnostics.Debug.WriteLine($"Detection for camera {e.CameraId}: " +
+            //         $"Box=({firstDetection.BoundingBox.X:F1}, {firstDetection.BoundingBox.Y:F1}, " +
+            //         $"{firstDetection.BoundingBox.Width:F1}, {firstDetection.BoundingBox.Height:F1})");
+            // }
+            
+            if (!ShowDetectionStats) return;
+            
+            App.Current.Dispatcher.Invoke(() =>
+            {
+                lock (_debugLock)
+                {
+                    // 디버그 정보 업데이트
+                    DebugDetectionInfo.Clear();
+                    
+                    var allDetections = new List<DetectionResult>();
+                    
+                    // 모든 카메라의 최신 검출 결과를 수집
+                    foreach (var camera in Cameras)
+                    {
+                        var detections = App.CameraService.GetLatestDetections(camera.CameraId);
+                        foreach (var detection in detections)
+                        {
+                            // 신뢰도 필터링 (디버그 모드에서는 낮은 신뢰도도 표시)
+                            if (ShowAllDetections || detection.ClassName.ToLower() == "person")
+                            {
+                                allDetections.Add(detection);
+                            }
+                        }
+                    }
+                    
+                    // 신뢰도순으로 정렬
+                    var sortedDetections = allDetections
+                        .OrderByDescending(d => d.Confidence)
+                        .Take(20) // 최대 20개만 표시
+                        .ToList();
+                    
+                    foreach (var detection in sortedDetections)
+                    {
+                        DebugDetectionInfo.Add(detection);
+                    }
+                    
+                    // 검출된 사람 수 업데이트
+                    DetectedPersonCount = allDetections.Count(d => d.ClassName.ToLower() == "person");
+                }
+            });
         }
         
         [RelayCommand]
@@ -558,6 +674,19 @@ namespace SafetyVisionMonitor.ViewModels
         {
             // 위험 구역 표시/숨김 처리는 XAML Visibility 바인딩으로 자동 처리됨
             System.Diagnostics.Debug.WriteLine($"Danger zones visibility changed: {value}");
+        }
+        
+        // 디버그 옵션 변경 이벤트 처리
+        partial void OnShowAllDetectionsChanged(bool value)
+        {
+            StaticShowAllDetections = value;
+            System.Diagnostics.Debug.WriteLine($"Show all detections changed: {value}");
+        }
+        
+        partial void OnShowDetailedInfoChanged(bool value)
+        {
+            StaticShowDetailedInfo = value;
+            System.Diagnostics.Debug.WriteLine($"Show detailed info changed: {value}");
         }
         
         private void OnZoneUpdated(object? sender, Services.ZoneUpdateEventArgs e)
@@ -722,7 +851,9 @@ namespace SafetyVisionMonitor.ViewModels
                         var centerX = sumX / points.Count;
                         var centerY = sumY / points.Count;
                         
-                        Cv2.PutText(frame, zone.Name, new Point(centerX - 30, centerY), 
+                        // OpenCV는 한글을 지원하지 않으므로 영문 라벨 사용
+                        var displayText = zone.Name.Contains("경고구역") ? "WARNING" : "DANGER";
+                        Cv2.PutText(frame, displayText, new Point(centerX - 30, centerY), 
                             HersheyFonts.HersheySimplex, 0.6, new Scalar(255, 255, 255), 2);
                     }
                 }
@@ -766,5 +897,293 @@ namespace SafetyVisionMonitor.ViewModels
         
         // 프레임 존재 여부 확인용 속성 추가
         public bool HasFrame => CurrentFrame != null;
+    }
+    
+    // DashboardViewModel 추적 관련 메소드들
+    public partial class DashboardViewModel
+    {
+        /// <summary>
+        /// 추적 설정 로드 및 서비스 초기화
+        /// </summary>
+        private async void LoadTrackingConfiguration()
+        {
+            try
+            {
+                var dbConfig = await App.DatabaseService.LoadTrackingConfigAsync();
+                if (dbConfig != null)
+                {
+                    _trackingConfig = new TrackingConfiguration
+                    {
+                        IsEnabled = dbConfig.IsEnabled,
+                        MaxTrackingDistance = dbConfig.MaxTrackingDistance,
+                        MaxDisappearFrames = dbConfig.MaxDisappearFrames,
+                        IouThreshold = (float)dbConfig.IouThreshold,
+                        SimilarityThreshold = (float)dbConfig.SimilarityThreshold,
+                        EnableReIdentification = dbConfig.EnableReIdentification,
+                        EnableMultiCameraTracking = dbConfig.EnableMultiCameraTracking,
+                        TrackHistoryLength = dbConfig.TrackHistoryLength,
+                        ShowTrackingId = dbConfig.ShowTrackingId,
+                        ShowTrackingPath = dbConfig.ShowTrackingPath,
+                        PathDisplayLength = dbConfig.PathDisplayLength,
+                        TrackingMethod = dbConfig.TrackingMethod
+                    };
+                }
+                else
+                {
+                    // 기본 설정
+                    _trackingConfig = new TrackingConfiguration
+                    {
+                        IsEnabled = true,
+                        MaxTrackingDistance = 50,
+                        MaxDisappearFrames = 30,
+                        IouThreshold = 0.3f,
+                        SimilarityThreshold = 0.7f,
+                        TrackHistoryLength = 50,
+                        ShowTrackingId = true,
+                        ShowTrackingPath = true,
+                        PathDisplayLength = 20,
+                        TrackingMethod = "SORT"
+                    };
+                }
+                
+                // 추적 서비스 초기화
+                if (_trackingConfig.IsEnabled)
+                {
+                    _trackingService = new PersonTrackingService(_trackingConfig);
+                    System.Diagnostics.Debug.WriteLine($"Tracking service initialized: {_trackingConfig.TrackingMethod}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load tracking configuration: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 기본 검출 박스 그리기 (추적 정보 없이)
+        /// </summary>
+        private void DrawBasicDetectionBoxes(Mat frame, List<DetectionResult> detections)
+        {
+            foreach (var detection in detections)
+            {
+                // AI 검출 좌표를 현재 프레임 크기에 맞게 스케일링
+                var scaledBoundingBox = ScaleDetectionToFrame(detection.BoundingBox, frame.Width, frame.Height);
+                
+                var rect = new Rect(
+                    (int)scaledBoundingBox.X,
+                    (int)scaledBoundingBox.Y,
+                    (int)scaledBoundingBox.Width,
+                    (int)scaledBoundingBox.Height
+                );
+
+                var color = detection.ClassName.ToLower() == "person" 
+                    ? new Scalar(0, 0, 255) : new Scalar(0, 255, 0);
+
+                Cv2.Rectangle(frame, rect, color, 2);
+
+                // 라벨 텍스트
+                var label = $"{detection.ClassName} ({detection.Confidence:P0})";
+                
+                // 텍스트 배경
+                var textSize = Cv2.GetTextSize(label, HersheyFonts.HersheySimplex, 0.5, 1, out var baseline);
+                var textRect = new Rect(
+                    rect.X,
+                    rect.Y - textSize.Height - 5,
+                    textSize.Width + 5,
+                    textSize.Height + 5
+                );
+
+                Cv2.Rectangle(frame, textRect, color, -1);
+
+                // 텍스트 그리기
+                Cv2.PutText(frame, label,
+                    new Point(rect.X + 2, rect.Y - 5),
+                    HersheyFonts.HersheySimplex,
+                    0.5,
+                    new Scalar(255, 255, 255),
+                    1);
+
+                // 중심점 표시
+                var center = new Point(
+                    rect.X + rect.Width / 2,
+                    rect.Y + rect.Height / 2
+                );
+                Cv2.Circle(frame, center, 3, color, -1);
+            }
+        }
+        
+        /// <summary>
+        /// AI 검출 좌표를 현재 프레임 크기에 맞게 스케일링
+        /// </summary>
+        private System.Drawing.RectangleF ScaleDetectionToFrame(System.Drawing.RectangleF originalBox, int targetWidth, int targetHeight)
+        {
+            // AI 검출 결과에서 추정되는 원본 프레임 크기
+            // Detection Box 정보로 보아 AI는 더 큰 해상도(예: 1280x720)를 사용하는 것으로 추정
+            // UI Frame은 960x540이므로 스케일링이 필요
+            
+            // 가능한 AI 원본 해상도들을 시도해보자
+            // 검출 박스가 (372, 353, 725, 716)이고 화면 오른쪽에 나타나므로
+            // AI 원본이 1280x720일 가능성이 높음
+            
+            float aiWidth = 1280f;  // AI 원본 추정 너비
+            float aiHeight = 720f;  // AI 원본 추정 높이
+            
+            // 스케일링 비율 계산
+            float scaleX = targetWidth / aiWidth;
+            float scaleY = targetHeight / aiHeight;
+            
+            // 좌표 스케일링
+            var scaledBox = new System.Drawing.RectangleF(
+                originalBox.X * scaleX,
+                originalBox.Y * scaleY,
+                originalBox.Width * scaleX,
+                originalBox.Height * scaleY
+            );
+            
+            // 디버그: 스케일링 정보 출력
+            System.Diagnostics.Debug.WriteLine($"Scale from {aiWidth}x{aiHeight} to {targetWidth}x{targetHeight}: " +
+                $"Original=({originalBox.X:F1}, {originalBox.Y:F1}, {originalBox.Width:F1}, {originalBox.Height:F1}) -> " +
+                $"Scaled=({scaledBox.X:F1}, {scaledBox.Y:F1}, {scaledBox.Width:F1}, {scaledBox.Height:F1})");
+            
+            return scaledBox;
+        }
+        
+        /// <summary>
+        /// 검출 결과에 추적 정보 적용
+        /// </summary>
+        private List<DetectionResult> ApplyTracking(List<DetectionResult> detections, string cameraId)
+        {
+            if (_trackingService == null || !_trackingConfig?.IsEnabled == true)
+                return detections;
+                
+            try
+            {
+                // 추적 서비스 업데이트
+                var trackedPersons = _trackingService.UpdateTracking(detections, cameraId);
+                _trackedPersons[cameraId] = trackedPersons;
+                
+                // 검출 결과에 트래킹 ID 적용
+                var updatedDetections = new List<DetectionResult>();
+                foreach (var detection in detections)
+                {
+                    var tracked = trackedPersons.FirstOrDefault(t => 
+                        Math.Abs(t.BoundingBox.X - detection.BoundingBox.X) < 10 &&
+                        Math.Abs(t.BoundingBox.Y - detection.BoundingBox.Y) < 10);
+                        
+                    if (tracked != null)
+                    {
+                        detection.TrackingId = tracked.TrackingId;
+                    }
+                    
+                    updatedDetections.Add(detection);
+                }
+                
+                return updatedDetections;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Tracking error for camera {cameraId}: {ex.Message}");
+                return detections;
+            }
+        }
+        
+        /// <summary>
+        /// 프레임에 추적 정보 그리기
+        /// </summary>
+        private Mat DrawTrackingOverlaysOnFrame(Mat frame, string cameraId, List<DetectionResult>? detections)
+        {
+            try
+            {
+                if (detections?.Any() != true)
+                {
+                    // 검출 결과가 없으면 원본 프레임 반환
+                    return frame;
+                }
+                
+                // 프레임 복사본 생성
+                var drawFrame = frame.Clone();
+                
+                // CameraService에서 이미 검출 박스를 그리므로 여기서는 추적 정보만 추가
+                // 추적이 비활성화된 경우 원본 프레임 반환 (CameraService가 이미 검출 박스를 그림)
+                if (_trackingService == null || _trackingConfig?.IsEnabled != true)
+                {
+                    return drawFrame; // 검출 박스는 이미 CameraService에서 그려짐
+                }
+                
+                // 추적 서비스로 검출 결과 업데이트
+                var updatedDetections = ApplyTracking(detections, cameraId);
+                
+                // 추적된 사람 정보 가져오기
+                var trackedPersons = _trackedPersons.GetValueOrDefault(cameraId, new List<TrackedPerson>());
+                
+                // 프레임 복사본 생성 (이미 위에서 생성됨)
+                var trackedFrame = drawFrame;
+                
+                // 추적 경로 그리기 (설정이 활성화된 경우)
+                if (_trackingConfig.ShowTrackingPath && trackedPersons.Any())
+                {
+                    foreach (var person in trackedPersons.Where(p => p.IsActive))
+                    {
+                        if (person.TrackingHistory == null || person.TrackingHistory.Count < 2)
+                            continue;
+                            
+                        // 경로 표시 길이 제한
+                        var pathLength = Math.Min(person.TrackingHistory.Count, _trackingConfig.PathDisplayLength);
+                        var recentPath = person.TrackingHistory.TakeLast(pathLength).ToList();
+                        
+                        if (recentPath.Count < 2) continue;
+                        
+                        // 추적 ID별 색상 결정
+                        var colors = new[]
+                        {
+                            new Scalar(255, 0, 0),    // 빨강
+                            new Scalar(0, 255, 0),    // 초록
+                            new Scalar(0, 0, 255),    // 파랑
+                            new Scalar(255, 255, 0),  // 노랑
+                            new Scalar(255, 0, 255),  // 마젠타
+                            new Scalar(0, 255, 255),  // 시안
+                            new Scalar(255, 128, 0),  // 주황
+                            new Scalar(128, 0, 255)   // 보라
+                        };
+                        
+                        var colorIndex = person.TrackingId % colors.Length;
+                        var pathColor = colors[colorIndex];
+                        
+                        // 경로 선 그리기
+                        for (int i = 0; i < recentPath.Count - 1; i++)
+                        {
+                            var startPoint = new Point((int)recentPath[i].X, (int)recentPath[i].Y);
+                            var endPoint = new Point((int)recentPath[i + 1].X, (int)recentPath[i + 1].Y);
+                            
+                            var thickness = Math.Max(1, 3 - (recentPath.Count - i - 1) / 3);
+                            Cv2.Line(trackedFrame, startPoint, endPoint, pathColor, thickness);
+                        }
+                        
+                        // 현재 위치에 원과 ID 표시
+                        if (recentPath.Any() && _trackingConfig.ShowTrackingId)
+                        {
+                            var currentPos = recentPath.Last();
+                            var centerPoint = new Point((int)currentPos.X, (int)currentPos.Y);
+                            Cv2.Circle(trackedFrame, centerPoint, 5, pathColor, -1);
+                            
+                            var idText = $"#{person.TrackingId}";
+                            var textPos = new Point((int)currentPos.X + 10, (int)currentPos.Y - 10);
+                            Cv2.PutText(trackedFrame, idText, textPos, HersheyFonts.HersheySimplex, 
+                                      0.6, new Scalar(255, 255, 255), 2);
+                        }
+                    }
+                }
+                
+                // 검출 박스는 CameraService에서 이미 그려짐
+                // 여기서는 추적 ID만 추가 표시 (필요한 경우)
+                
+                return trackedFrame;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Tracking overlay error for camera {cameraId}: {ex.Message}");
+                return frame; // 오류 발생 시 원본 프레임 반환
+            }
+        }
     }
 }

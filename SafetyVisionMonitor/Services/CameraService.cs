@@ -15,6 +15,7 @@ namespace SafetyVisionMonitor.Services
     {
         private readonly ConcurrentDictionary<string, CameraConnection> _connections = new();
         private readonly int _maxCameras;
+        private readonly ConcurrentDictionary<string, List<DetectionResult>> _latestDetections = new();
         public event EventHandler<CameraFrameEventArgs>? FrameReceived;
         public event EventHandler<CameraFrameEventArgs>? FrameReceivedForAI; // AI용 원본 프레임
         public event EventHandler<CameraFrameEventArgs>? FrameReceivedForUI; // UI용 저화질 프레임
@@ -23,6 +24,12 @@ namespace SafetyVisionMonitor.Services
         public CameraService()
         {
             _maxCameras = App.Configuration.GetValue<int>("AppSettings:MaxCameras", 4);
+            
+            // AI 서비스의 객체 검출 이벤트 구독
+            if (App.AIPipeline != null)
+            {
+                App.AIPipeline.ObjectDetected += OnObjectDetected;
+            }
         }
         
         public async Task<bool> ConnectCamera(Camera camera)
@@ -214,10 +221,20 @@ namespace SafetyVisionMonitor.Services
                 if (!ShouldUpdateUI(originalFrame.CameraId))
                     return;
                 
+                // 최신 검출 결과 가져오기
+                var detections = GetLatestDetections(originalFrame.CameraId);
+                
                 foreach (var handler in uiHandlers)
                 {
                     // UI용은 해상도 축소 (1/4 크기)
                     var uiFrame = CreateLowResolutionFrame(originalFrame.Frame);
+                    
+                    // 검출 결과가 있으면 프레임에 그리기
+                    if (detections.Count > 0)
+                    {
+                        DrawDetectionBoxes(uiFrame, detections);
+                    }
+                    
                     try
                     {
                         ((EventHandler<CameraFrameEventArgs>)handler).Invoke(this, 
@@ -259,14 +276,132 @@ namespace SafetyVisionMonitor.Services
             return resizedFrame;
         }
         
+        private void DrawDetectionBoxes(Mat frame, List<DetectionResult> detections)
+        {
+            // 축소된 프레임에 맞게 좌표 조정 (원본의 1/2 크기)
+            var scale = 0.5f;
+            
+            // 정적 속성에서 디버그 설정 가져오기
+            var showAllDetections = ViewModels.DashboardViewModel.StaticShowAllDetections;
+            var showDetailedInfo = ViewModels.DashboardViewModel.StaticShowDetailedInfo;
+            
+            foreach (var detection in detections)
+            {
+                // 디버그 모드가 아니면 사람만 표시
+                if (!showAllDetections && detection.ClassName.ToLower() != "person")
+                    continue;
+                
+                // 바운딩 박스 좌표 스케일 조정
+                var rect = new Rect(
+                    (int)(detection.BoundingBox.X * scale),
+                    (int)(detection.BoundingBox.Y * scale),
+                    (int)(detection.BoundingBox.Width * scale),
+                    (int)(detection.BoundingBox.Height * scale)
+                );
+
+                // 색상 결정 (사람은 빨간색, 다른 객체는 다양한 색상)
+                var color = GetDetectionColor(detection.ClassName);
+
+                // 박스 그리기 (디버그 모드에서는 더 두껍게)
+                var thickness = showDetailedInfo ? 3 : 2;
+                Cv2.Rectangle(frame, rect, color, thickness);
+
+                // 라벨 텍스트 (디버그 모드에서는 더 상세한 정보)
+                var label = showDetailedInfo 
+                    ? $"{detection.ClassName} {detection.Confidence:P1} [{detection.ClassId}]"
+                    : $"{detection.ClassName} ({detection.Confidence:P0})";
+                
+                // 텍스트 크기 계산
+                var fontSize = showDetailedInfo ? 0.6 : 0.5;
+                var textSize = Cv2.GetTextSize(label, HersheyFonts.HersheySimplex, fontSize, 1, out var baseline);
+                
+                // 텍스트 배경 위치 (박스 위에 표시)
+                var textY = rect.Y - 5;
+                if (textY < textSize.Height + 5)
+                {
+                    textY = rect.Y + rect.Height + textSize.Height + 5;
+                }
+                
+                var textRect = new Rect(
+                    rect.X,
+                    textY - textSize.Height - 5,
+                    textSize.Width + 5,
+                    textSize.Height + 5
+                );
+
+                // 텍스트 배경 그리기
+                Cv2.Rectangle(frame, textRect, color, -1);
+
+                // 텍스트 그리기
+                Cv2.PutText(frame, label,
+                    new OpenCvSharp.Point(rect.X + 2, textY - 5),
+                    HersheyFonts.HersheySimplex,
+                    fontSize,
+                    new Scalar(255, 255, 255), // 흰색 텍스트
+                    1);
+                
+                // 디버그 모드에서는 중심점과 ID 표시
+                if (showDetailedInfo)
+                {
+                    var center = new OpenCvSharp.Point(
+                        rect.X + rect.Width / 2,
+                        rect.Y + rect.Height / 2
+                    );
+                    Cv2.Circle(frame, center, 4, color, -1);
+                    
+                    // 검출 시간 표시 (오른쪽 하단)
+                    var timeText = detection.Timestamp.ToString("mm:ss.fff");
+                    Cv2.PutText(frame, timeText,
+                        new OpenCvSharp.Point(rect.X + rect.Width - 50, rect.Y + rect.Height - 5),
+                        HersheyFonts.HersheySimplex,
+                        0.4,
+                        new Scalar(255, 255, 0), // 노란색
+                        1);
+                }
+            }
+        }
+        
+        private Scalar GetDetectionColor(string className)
+        {
+            return className.ToLower() switch
+            {
+                "person" => new Scalar(0, 0, 255),      // 빨간색
+                "car" => new Scalar(255, 0, 0),         // 파란색
+                "truck" => new Scalar(255, 255, 0),     // 청록색
+                "bicycle" => new Scalar(0, 255, 255),   // 노란색
+                "motorcycle" => new Scalar(255, 0, 255), // 자홍색
+                _ => new Scalar(0, 255, 0)               // 기본 녹색
+            };
+        }
+        
+        private void OnObjectDetected(object? sender, ObjectDetectionEventArgs e)
+        {
+            // 카메라별로 최신 검출 결과 저장
+            _latestDetections[e.CameraId] = e.Detections.ToList();
+        }
+        
+        public List<DetectionResult> GetLatestDetections(string cameraId)
+        {
+            return _latestDetections.TryGetValue(cameraId, out var detections) 
+                ? detections 
+                : new List<DetectionResult>();
+        }
+        
         public void Dispose()
         {
+            // AI 이벤트 구독 해제
+            if (App.AIPipeline != null)
+            {
+                App.AIPipeline.ObjectDetected -= OnObjectDetected;
+            }
+            
             foreach (var connection in _connections.Values)
             {
                 connection.FrameReceived -= OnFrameReceived;
                 connection.Dispose();
             }
             _connections.Clear();
+            _latestDetections.Clear();
         }
     }
     

@@ -93,24 +93,24 @@ namespace SafetyVisionMonitor.Services
                 }
                 
                 // 기본 모델이 없으면 샘플 추가
-                if (!AIModels.Any())
-                {
-                    var defaultModel = new Database.AIModelConfig
-                    {
-                        ModelName = "YOLOv8n",
-                        ModelVersion = "1.0.0",
-                        ModelType = "YOLOv8",
-                        ModelPath = "Models/yolov8n.onnx",
-                        DefaultConfidence = 0.7,
-                        IsActive = true,
-                        UploadedTime = DateTime.Now
-                    };
-                    
-                    AIModels.Add(defaultModel);
-                    
-                    // 기본 모델을 데이터베이스에 저장
-                    await App.DatabaseService.SaveAIModelConfigsAsync(new List<Database.AIModelConfig> { defaultModel });
-                }
+                // if (!AIModels.Any())
+                // {
+                //     var defaultModel = new Database.AIModelConfig
+                //     {
+                //         ModelName = "YOLOv8n",
+                //         ModelVersion = "1.0.0",
+                //         ModelType = "YOLOv8",
+                //         ModelPath = "Models/yolov8n.onnx",
+                //         DefaultConfidence = 0.7,
+                //         IsActive = true,
+                //         UploadedTime = DateTime.Now
+                //     };
+                //     
+                //     AIModels.Add(defaultModel);
+                //     
+                //     // 기본 모델을 데이터베이스에 저장
+                //     await App.DatabaseService.SaveAIModelConfigsAsync(new List<Database.AIModelConfig> { defaultModel });
+                // }
             }
             catch (Exception ex)
             {

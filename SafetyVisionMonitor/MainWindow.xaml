@@ -96,6 +96,12 @@
                         
                         <RadioButton Style="{StaticResource MenuButtonStyle}"
                                    Command="{Binding NavigateCommand}"
+                                   CommandParameter="ModelConversion">
+                            <TextBlock Text="모델 변환" Foreground="White"/>
+                        </RadioButton>
+                        
+                        <RadioButton Style="{StaticResource MenuButtonStyle}"
+                                   Command="{Binding NavigateCommand}"
                                    CommandParameter="EventLog">
                             <TextBlock Text="이벤트/로그" Foreground="White"/>
                         </RadioButton>

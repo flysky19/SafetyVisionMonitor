@@ -333,7 +333,9 @@ namespace SafetyVisionMonitor.Services
                 GpuTemperature = gpuInfo.Temperature,
                 ProcessedFps = ProcessedFramesPerSecond,
                 DetectedPersons = DetectedPersonCount,
-                ActiveAlerts = ActiveAlertsCount
+                ActiveAlerts = ActiveAlertsCount,
+                IsUsingGpu = App.AIInferenceService?.IsUsingGpu ?? false,
+                ExecutionProvider = App.AIInferenceService?.ExecutionProvider ?? "Unknown"
             };
             
             PerformanceUpdated?.Invoke(this, metrics);

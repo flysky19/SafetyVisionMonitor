@@ -35,6 +35,8 @@ namespace SafetyVisionMonitor.Models
         [ObservableProperty]
         private ModelStatus status = ModelStatus.Ready;
         
+        [ObservableProperty]
+        private string description = string.Empty;
         public string FileSizeText => FormatFileSize(FileSize);
         
         private string FormatFileSize(long bytes)
@@ -53,6 +55,8 @@ namespace SafetyVisionMonitor.Models
     
     public enum ModelType
     {
+        YOLOv12,
+        YOLOv11,
         YOLOv8,
         YOLOv7,
         YOLOv5,

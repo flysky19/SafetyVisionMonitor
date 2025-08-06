@@ -30,12 +30,15 @@ namespace SafetyVisionMonitor.Services
         public event EventHandler<ObjectDetectionEventArgs>? ObjectDetected;
         public event EventHandler<ModelPerformanceEventArgs>? PerformanceUpdated;
         public event EventHandler<ModelStatusEventArgs>? ModelStatusChanged;
+        public event EventHandler<ModelDownloadProgressEventArgs>? ModelDownloadProgress;
         
         // 속성
         public bool IsModelLoaded => _currentEngine?.IsLoaded == true;
         public AIModel? ActiveModel => _activeModel;
         public long TotalFramesProcessed => _totalFramesProcessed;
         public double AverageInferenceTime => _totalFramesProcessed > 0 ? _totalInferenceTime / _totalFramesProcessed : 0;
+        public bool IsUsingGpu => _currentEngine?.IsUsingGpu ?? false;
+        public string ExecutionProvider => _currentEngine?.ExecutionProvider ?? "Unknown";
         
         /// <summary>
         /// YOLO 모델 로드
@@ -63,14 +66,14 @@ namespace SafetyVisionMonitor.Services
                 // 상태 업데이트
                 NotifyModelStatus(model, ModelStatus.Loading, "모델 로딩 중...");
                 
-                // 비동기로 모델 로드
-                var success = await Task.Run(() =>
-                {
-                    _currentEngine = new YOLOv8Engine();
-                    var useGpu = true; // GPU 사용 시도
-                    
-                    return _currentEngine.Initialize(model.ModelPath, useGpu);
-                });
+                // 비동기로 모델 로드 (자동 다운로드 포함)
+                _currentEngine = new YOLOv8Engine();
+                
+                // 다운로드 진행률 이벤트 구독
+                _currentEngine.DownloadProgressChanged += OnModelDownloadProgress;
+                
+                var useGpu = true; // GPU 사용 시도
+                var success = await _currentEngine.InitializeAsync(model.ModelPath, useGpu);
                 
                 if (success)
                 {
@@ -78,8 +81,9 @@ namespace SafetyVisionMonitor.Services
                     _totalFramesProcessed = 0;
                     _totalInferenceTime = 0;
                     
-                    NotifyModelStatus(model, ModelStatus.Ready, "모델 로드 완료");
-                    System.Diagnostics.Debug.WriteLine($"AIInferenceService: Model loaded successfully: {model.Name}");
+                    var statusMessage = $"모델 로드 완료 ({_currentEngine.ExecutionProvider})";
+                    NotifyModelStatus(model, ModelStatus.Ready, statusMessage);
+                    System.Diagnostics.Debug.WriteLine($"AIInferenceService: Model loaded successfully: {model.Name} using {_currentEngine.ExecutionProvider}");
                     
                     return true;
                 }
@@ -113,6 +117,9 @@ namespace SafetyVisionMonitor.Services
         {
             if (_currentEngine != null)
             {
+                // 이벤트 구독 해제
+                _currentEngine.DownloadProgressChanged -= OnModelDownloadProgress;
+                
                 _currentEngine.Dispose();
                 _currentEngine = null;
                 
@@ -335,9 +342,33 @@ namespace SafetyVisionMonitor.Services
             };
         }
         
+        /// <summary>
+        /// 모델 다운로드 진행률 이벤트 핸들러
+        /// </summary>
+        private void OnModelDownloadProgress(object? sender, ModelDownloadProgressEventArgs e)
+        {
+            // 상태 메시지 업데이트
+            if (_activeModel != null)
+            {
+                var message = $"모델 다운로드 중... {e.ProgressPercentage:F1}%";
+                NotifyModelStatus(_activeModel, ModelStatus.Loading, message);
+            }
+            
+            // 진행률 이벤트 전파
+            ModelDownloadProgress?.Invoke(this, e);
+            
+            System.Diagnostics.Debug.WriteLine($"AIInferenceService: Download progress: {e.ProgressPercentage:F1}%");
+        }
+        
         public void Dispose()
         {
             if (_disposed) return;
+            
+            // 이벤트 구독 해제
+            if (_currentEngine != null)
+            {
+                _currentEngine.DownloadProgressChanged -= OnModelDownloadProgress;
+            }
             
             UnloadModel();
             _disposed = true;
@@ -398,6 +429,8 @@ namespace SafetyVisionMonitor.Services
         public int ProcessedFps { get; set; }
         public int DetectedPersons { get; set; }
         public int ActiveAlerts { get; set; }
+        public bool IsUsingGpu { get; set; }
+        public string ExecutionProvider { get; set; } = "Unknown";
     }
     
     /// <summary>

@@ -14,12 +14,147 @@ namespace SafetyVisionMonitor.Services
     {
         public DatabaseService()
         {
-            // DB 초기화
-            using var context = new AppDbContext();
-            context.Database.EnsureCreated();
-            
-            // 화질 설정 컬럼 마이그레이션
-            MigrateCameraQualitySettings(context);
+            try
+            {
+                // DB 초기화
+                using var context = new AppDbContext();
+                
+                // 데이터베이스 생성 또는 업데이트
+                context.Database.EnsureCreated();
+                
+                // 테이블 존재 확인 (디버깅용)
+                var tables = context.Database.GetPendingMigrations();
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Database initialized. Pending migrations: {tables.Count()}");
+                
+                // 각 테이블 확인
+                try
+                {
+                    var safetyEventCount = context.SafetyEvents.Count();
+                    System.Diagnostics.Debug.WriteLine($"SafetyEvents table exists with {safetyEventCount} records");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"SafetyEvents table error: {ex.Message}");
+                }
+                
+                try
+                {
+                    var aiModelCount = context.AIModelConfigs.Count();
+                    System.Diagnostics.Debug.WriteLine($"AIModelConfigs table exists with {aiModelCount} records");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"AIModelConfigs table error: {ex.Message}");
+                    
+                    // AIModelConfigs 테이블이 없으면 강제로 생성
+                    try
+                    {
+                        context.Database.ExecuteSqlRaw(@"
+                            CREATE TABLE IF NOT EXISTS AIModelConfigs (
+                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                ModelName TEXT NOT NULL,
+                                ModelVersion TEXT NOT NULL,
+                                ModelPath TEXT NOT NULL,
+                                ModelType TEXT NOT NULL,
+                                DefaultConfidence REAL NOT NULL,
+                                ConfigJson TEXT NOT NULL,
+                                IsActive INTEGER NOT NULL,
+                                UploadedTime TEXT NOT NULL,
+                                FileSize INTEGER NOT NULL,
+                                Description TEXT
+                            )
+                        ");
+                        System.Diagnostics.Debug.WriteLine("AIModelConfigs table created manually");
+                    }
+                    catch (Exception createEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to create AIModelConfigs table: {createEx.Message}");
+                    }
+                }
+                
+                // 추적 설정 테이블 확인 및 생성
+                try
+                {
+                    var trackingConfigCount = context.TrackingConfigs.Count();
+                    System.Diagnostics.Debug.WriteLine($"TrackingConfigs table exists with {trackingConfigCount} records");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"TrackingConfigs table error: {ex.Message}");
+                    
+                    // TrackingConfigs 테이블이 없으면 강제로 생성
+                    try
+                    {
+                        context.Database.ExecuteSqlRaw(@"
+                            CREATE TABLE IF NOT EXISTS TrackingConfigs (
+                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                IsEnabled INTEGER NOT NULL,
+                                MaxTrackingDistance INTEGER NOT NULL,
+                                MaxDisappearFrames INTEGER NOT NULL,
+                                IouThreshold REAL NOT NULL,
+                                SimilarityThreshold REAL NOT NULL,
+                                EnableReIdentification INTEGER NOT NULL,
+                                EnableMultiCameraTracking INTEGER NOT NULL,
+                                TrackHistoryLength INTEGER NOT NULL,
+                                ShowTrackingId INTEGER NOT NULL,
+                                ShowTrackingPath INTEGER NOT NULL,
+                                PathDisplayLength INTEGER NOT NULL,
+                                AutoSaveTracking INTEGER NOT NULL,
+                                AutoSaveInterval INTEGER NOT NULL,
+                                TrackingMethod TEXT NOT NULL,
+                                LastModified TEXT NOT NULL
+                            )
+                        ");
+                        System.Diagnostics.Debug.WriteLine("TrackingConfigs table created manually");
+                    }
+                    catch (Exception createEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to create TrackingConfigs table: {createEx.Message}");
+                    }
+                }
+                
+                // 추적 구역 테이블 확인 및 생성
+                try
+                {
+                    var trackingZoneCount = context.TrackingZoneConfigs.Count();
+                    System.Diagnostics.Debug.WriteLine($"TrackingZoneConfigs table exists with {trackingZoneCount} records");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"TrackingZoneConfigs table error: {ex.Message}");
+                    
+                    // TrackingZoneConfigs 테이블이 없으면 강제로 생성
+                    try
+                    {
+                        context.Database.ExecuteSqlRaw(@"
+                            CREATE TABLE IF NOT EXISTS TrackingZoneConfigs (
+                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                ZoneId TEXT NOT NULL,
+                                Name TEXT NOT NULL,
+                                IsEntryZone INTEGER NOT NULL,
+                                IsExitZone INTEGER NOT NULL,
+                                CountingEnabled INTEGER NOT NULL,
+                                PolygonJson TEXT NOT NULL,
+                                CameraId TEXT NOT NULL,
+                                CreatedTime TEXT NOT NULL
+                            )
+                        ");
+                        System.Diagnostics.Debug.WriteLine("TrackingZoneConfigs table created manually");
+                    }
+                    catch (Exception createEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to create TrackingZoneConfigs table: {createEx.Message}");
+                    }
+                }
+                
+                // 화질 설정 컬럼 마이그레이션
+                MigrateCameraQualitySettings(context);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DatabaseService initialization error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+            }
         }
         
         private void MigrateCameraQualitySettings(AppDbContext context)
@@ -62,17 +197,7 @@ namespace SafetyVisionMonitor.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Camera quality migration failed: {ex.Message}");
-                // 마이그레이션 실패 시 DB 재생성을 위해 기존 DB 삭제
-                try
-                {
-                    context.Database.EnsureDeleted();
-                    context.Database.EnsureCreated();
-                    System.Diagnostics.Debug.WriteLine("Database recreated due to migration failure");
-                }
-                catch (Exception recreateEx)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Database recreation failed: {recreateEx.Message}");
-                }
+                // 마이그레이션 실패는 로그만 남기고 계속 진행 (데이터 보존)
             }
         }
         
@@ -528,8 +653,28 @@ namespace SafetyVisionMonitor.Services
         // AI 모델 설정 로드
         public async Task<List<Database.AIModelConfig>> LoadAIModelConfigsAsync()
         {
-            using var context = new AppDbContext();
-            return await context.AIModelConfigs.ToListAsync();
+            try
+            {
+                using var context = new AppDbContext();
+                
+                // 테이블 존재 확인 및 생성 (기존 데이터 유지)
+                await context.Database.EnsureCreatedAsync();
+                
+                // 데이터 로드
+                var configs = await context.AIModelConfigs.ToListAsync();
+                
+                System.Diagnostics.Debug.WriteLine($"LoadAIModelConfigsAsync: Loaded {configs.Count} AI model configs");
+                
+                return configs;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"LoadAIModelConfigsAsync Error: {ex.GetType().Name} - {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack Trace: {ex.StackTrace}");
+                
+                // 오류 발생 시 빈 리스트 반환 (데이터 삭제 없음)
+                return new List<Database.AIModelConfig>();
+            }
         }
         
         // 안전 이벤트 조회
@@ -542,6 +687,141 @@ namespace SafetyVisionMonitor.Services
                 .OrderByDescending(e => e.Timestamp)
                 .Take(limit)
                 .ToListAsync();
+        }
+        
+        // 추적 설정 저장
+        public async Task SaveTrackingConfigAsync(TrackingConfig config)
+        {
+            using var context = new AppDbContext();
+            
+            try
+            {
+                var existing = await context.TrackingConfigs.FirstOrDefaultAsync();
+                
+                if (existing != null)
+                {
+                    // 기존 설정 업데이트
+                    existing.IsEnabled = config.IsEnabled;
+                    existing.MaxTrackingDistance = config.MaxTrackingDistance;
+                    existing.MaxDisappearFrames = config.MaxDisappearFrames;
+                    existing.IouThreshold = config.IouThreshold;
+                    existing.SimilarityThreshold = config.SimilarityThreshold;
+                    existing.EnableReIdentification = config.EnableReIdentification;
+                    existing.EnableMultiCameraTracking = config.EnableMultiCameraTracking;
+                    existing.TrackHistoryLength = config.TrackHistoryLength;
+                    existing.ShowTrackingId = config.ShowTrackingId;
+                    existing.ShowTrackingPath = config.ShowTrackingPath;
+                    existing.PathDisplayLength = config.PathDisplayLength;
+                    existing.AutoSaveTracking = config.AutoSaveTracking;
+                    existing.AutoSaveInterval = config.AutoSaveInterval;
+                    existing.TrackingMethod = config.TrackingMethod;
+                    existing.LastModified = DateTime.Now;
+                }
+                else
+                {
+                    // 새 설정 추가
+                    context.TrackingConfigs.Add(config);
+                }
+                
+                await context.SaveChangesAsync();
+                System.Diagnostics.Debug.WriteLine("Tracking config saved successfully");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to save tracking config: {ex.Message}");
+                throw;
+            }
+        }
+        
+        // 추적 설정 로드
+        public async Task<TrackingConfig?> LoadTrackingConfigAsync()
+        {
+            try
+            {
+                using var context = new AppDbContext();
+                await context.Database.EnsureCreatedAsync();
+                
+                var config = await context.TrackingConfigs.FirstOrDefaultAsync();
+                System.Diagnostics.Debug.WriteLine($"Loaded tracking config: {config?.TrackingMethod ?? "null"}");
+                
+                return config;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load tracking config: {ex.Message}");
+                return null;
+            }
+        }
+        
+        // 추적 구역 저장
+        public async Task SaveTrackingZonesAsync(List<TrackingZoneConfig> zones)
+        {
+            using var context = new AppDbContext();
+            
+            try
+            {
+                // 기존 구역들 삭제
+                var existingZones = await context.TrackingZoneConfigs.ToListAsync();
+                context.TrackingZoneConfigs.RemoveRange(existingZones);
+                
+                // 새 구역들 추가
+                foreach (var zone in zones)
+                {
+                    context.TrackingZoneConfigs.Add(zone);
+                }
+                
+                await context.SaveChangesAsync();
+                System.Diagnostics.Debug.WriteLine($"Saved {zones.Count} tracking zones");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to save tracking zones: {ex.Message}");
+                throw;
+            }
+        }
+        
+        // 추적 구역 로드
+        public async Task<List<TrackingZoneConfig>> LoadTrackingZonesAsync()
+        {
+            try
+            {
+                using var context = new AppDbContext();
+                await context.Database.EnsureCreatedAsync();
+                
+                var zones = await context.TrackingZoneConfigs.ToListAsync();
+                System.Diagnostics.Debug.WriteLine($"Loaded {zones.Count} tracking zones");
+                
+                return zones;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load tracking zones: {ex.Message}");
+                return new List<TrackingZoneConfig>();
+            }
+        }
+        
+        // 추적 구역 삭제
+        public async Task DeleteTrackingZoneAsync(string zoneId)
+        {
+            using var context = new AppDbContext();
+            
+            try
+            {
+                var zone = await context.TrackingZoneConfigs
+                    .FirstOrDefaultAsync(z => z.ZoneId == zoneId);
+                    
+                if (zone != null)
+                {
+                    context.TrackingZoneConfigs.Remove(zone);
+                    await context.SaveChangesAsync();
+                    System.Diagnostics.Debug.WriteLine($"Deleted tracking zone: {zoneId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to delete tracking zone {zoneId}: {ex.Message}");
+                throw;
+            }
         }
     }
 }

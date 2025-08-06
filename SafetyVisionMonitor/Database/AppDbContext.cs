@@ -12,6 +12,8 @@ namespace SafetyVisionMonitor.Database
         public DbSet<Zone3DConfig> Zone3DConfigs { get; set; } = null!;
         public DbSet<PersonTrackingRecord> PersonTrackingRecords { get; set; } = null!;
         public DbSet<AIModelConfig> AIModelConfigs { get; set; } = null!;
+        public DbSet<TrackingConfig> TrackingConfigs { get; set; } = null!;
+        public DbSet<TrackingZoneConfig> TrackingZoneConfigs { get; set; } = null!;
         
         protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
         {
@@ -128,5 +130,40 @@ namespace SafetyVisionMonitor.Database
         public DateTime UploadedTime { get; set; } = DateTime.Now;
         public long FileSize { get; set; } = 0;
         public string? Description { get; set; }
+    }
+    
+    // 추적 설정
+    public class TrackingConfig
+    {
+        public int Id { get; set; }
+        public bool IsEnabled { get; set; } = true;
+        public int MaxTrackingDistance { get; set; } = 50;
+        public int MaxDisappearFrames { get; set; } = 30;
+        public double IouThreshold { get; set; } = 0.3;
+        public double SimilarityThreshold { get; set; } = 0.7;
+        public bool EnableReIdentification { get; set; } = true;
+        public bool EnableMultiCameraTracking { get; set; } = true;
+        public int TrackHistoryLength { get; set; } = 50;
+        public bool ShowTrackingId { get; set; } = true;
+        public bool ShowTrackingPath { get; set; } = true;
+        public int PathDisplayLength { get; set; } = 20;
+        public bool AutoSaveTracking { get; set; } = true;
+        public int AutoSaveInterval { get; set; } = 60;
+        public string TrackingMethod { get; set; } = "SORT";
+        public DateTime LastModified { get; set; } = DateTime.Now;
+    }
+    
+    // 추적 구역 설정
+    public class TrackingZoneConfig
+    {
+        public int Id { get; set; }
+        public string ZoneId { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public bool IsEntryZone { get; set; }
+        public bool IsExitZone { get; set; }
+        public bool CountingEnabled { get; set; }
+        public string PolygonJson { get; set; } = string.Empty; // 구역 좌표 JSON
+        public string CameraId { get; set; } = string.Empty;
+        public DateTime CreatedTime { get; set; } = DateTime.Now;
     }
 }
