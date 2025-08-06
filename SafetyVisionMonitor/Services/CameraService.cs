@@ -16,6 +16,7 @@ namespace SafetyVisionMonitor.Services
         private readonly ConcurrentDictionary<string, CameraConnection> _connections = new();
         private readonly int _maxCameras;
         private readonly ConcurrentDictionary<string, List<DetectionResult>> _latestDetections = new();
+        private readonly ConcurrentDictionary<string, Mat> _latestFrames = new(); // 최신 프레임 캐시
         public event EventHandler<CameraFrameEventArgs>? FrameReceived;
         public event EventHandler<CameraFrameEventArgs>? FrameReceivedForAI; // AI용 원본 프레임
         public event EventHandler<CameraFrameEventArgs>? FrameReceivedForUI; // UI용 저화질 프레임
@@ -170,6 +171,9 @@ namespace SafetyVisionMonitor.Services
         
         private void DistributeAIFrame(CameraFrameEventArgs originalFrame)
         {
+            // 최신 프레임 캐시 업데이트 (MediaCaptureService용)
+            UpdateLatestFrameCache(originalFrame.CameraId, originalFrame.Frame);
+            
             // AI 파이프라인으로 직접 전송 (더 효율적)
             if (App.AIPipeline != null)
             {
@@ -402,6 +406,82 @@ namespace SafetyVisionMonitor.Services
             }
             _connections.Clear();
             _latestDetections.Clear();
+            
+            // 최신 프레임 캐시 정리
+            foreach (var frame in _latestFrames.Values)
+            {
+                frame?.Dispose();
+            }
+            _latestFrames.Clear();
+        }
+        
+        /// <summary>
+        /// 최신 프레임 캐시 업데이트
+        /// </summary>
+        private void UpdateLatestFrameCache(string cameraId, Mat frame)
+        {
+            try
+            {
+                // 기존 프레임이 있으면 해제
+                if (_latestFrames.TryGetValue(cameraId, out var oldFrame))
+                {
+                    oldFrame?.Dispose();
+                }
+                
+                // 새 프레임으로 교체 (복사본 저장)
+                _latestFrames[cameraId] = frame.Clone();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: Frame cache update error - {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 특정 카메라의 최신 프레임 가져오기
+        /// </summary>
+        public Mat? GetLatestFrame(string cameraId)
+        {
+            try
+            {
+                if (_latestFrames.TryGetValue(cameraId, out var frame) && frame != null && !frame.Empty())
+                {
+                    return frame.Clone(); // 복사본 반환
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"CameraService: No latest frame available for camera {cameraId}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: Frame retrieval error - {ex.Message}");
+                return null;
+            }
+        }
+        
+        /// <summary>
+        /// 모든 연결된 카메라의 최신 프레임 가져오기
+        /// </summary>
+        public Dictionary<string, Mat> GetAllLatestFrames()
+        {
+            var result = new Dictionary<string, Mat>();
+            
+            try
+            {
+                foreach (var kvp in _latestFrames)
+                {
+                    if (kvp.Value != null && !kvp.Value.Empty())
+                    {
+                        result[kvp.Key] = kvp.Value.Clone();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: Batch frame retrieval error - {ex.Message}");
+            }
+            
+            return result;
         }
     }
     

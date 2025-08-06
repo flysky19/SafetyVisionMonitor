@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Linq;
 using System.Threading.Tasks;
 using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Services.Handlers;
 
 namespace SafetyVisionMonitor.Services
 {
@@ -16,6 +17,7 @@ namespace SafetyVisionMonitor.Services
         private readonly Dictionary<string, List<Zone3D>> _cameraZones = new();
         private readonly Dictionary<string, DateTime> _lastAlertTime = new();
         private readonly TimeSpan _alertCooldown = TimeSpan.FromSeconds(5); // 5초 쿨다운
+        private readonly SafetyEventHandlerManager _eventHandlerManager;
         
         private bool _disposed = false;
         
@@ -30,11 +32,12 @@ namespace SafetyVisionMonitor.Services
         public SafetyDetectionService(DatabaseService databaseService)
         {
             _databaseService = databaseService ?? throw new ArgumentNullException(nameof(databaseService));
+            _eventHandlerManager = new SafetyEventHandlerManager();
             
             // 초기 구역 데이터 로드
             _ = Task.Run(LoadZoneDataAsync);
             
-            System.Diagnostics.Debug.WriteLine("SafetyDetectionService: Initialized");
+            System.Diagnostics.Debug.WriteLine("SafetyDetectionService: Initialized with event handler manager");
         }
         
         /// <summary>
@@ -244,13 +247,13 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 안전 알림 발생
+        /// 안전 알림 발생 (새로운 이벤트 핸들러 시스템 사용)
         /// </summary>
         private async Task TriggerSafetyAlert(ZoneViolation violation)
         {
             try
             {
-                // 안전 이벤트 생성
+                // 안전 이벤트 생성 (기본 정보만)
                 var safetyEvent = new SafetyEvent
                 {
                     Id = 0, // 자동 생성
@@ -265,20 +268,36 @@ namespace SafetyVisionMonitor.Services
                     IsAcknowledged = false
                 };
                 
-                // 데이터베이스에 저장
-                await _databaseService.SaveSafetyEventAsync(safetyEvent);
-                TotalSafetyEventsGenerated++;
-                
-                // 이벤트 발생
-                SafetyEventDetected?.Invoke(this, new SafetyEventArgs
+                // 이벤트 컨텍스트 생성
+                var context = new SafetyEventContext
                 {
                     SafetyEvent = safetyEvent,
+                    Violation = violation,
+                    ProcessingStartTime = DateTime.Now
+                };
+                
+                // 추가 컨텍스트 정보 설정
+                context.SetProperty("OriginalAlertTime", DateTime.Now);
+                context.SetProperty("ServiceVersion", "1.0");
+                context.SetProperty("ZoneType", violation.Zone.Type.ToString());
+                
+                // 이벤트 핸들러 체인 실행 (병렬 처리)
+                await _eventHandlerManager.HandleEventAsync(context);
+                
+                TotalSafetyEventsGenerated++;
+                
+                // 기존 이벤트도 발생 (하위 호환성)
+                SafetyEventDetected?.Invoke(this, new SafetyEventArgs
+                {
+                    SafetyEvent = context.SafetyEvent,
                     Violation = violation
                 });
                 
+                var processingTime = DateTime.Now - context.ProcessingStartTime;
                 System.Diagnostics.Debug.WriteLine(
-                    $"SafetyDetectionService: Safety alert triggered - {violation.ViolationType} " +
-                    $"in {violation.Zone.Name} (Camera: {violation.Detection.CameraId})");
+                    $"SafetyDetectionService: Safety alert completed - {violation.ViolationType} " +
+                    $"in {violation.Zone.Name} (Camera: {violation.Detection.CameraId}) " +
+                    $"[{processingTime.TotalMilliseconds:F1}ms]");
             }
             catch (Exception ex)
             {
@@ -340,10 +359,34 @@ namespace SafetyVisionMonitor.Services
             return stats;
         }
         
+        /// <summary>
+        /// 이벤트 핸들러 관리자 접근 (확장성을 위해)
+        /// </summary>
+        public SafetyEventHandlerManager EventHandlerManager => _eventHandlerManager;
+        
+        /// <summary>
+        /// 커스텀 이벤트 핸들러 등록
+        /// </summary>
+        public void RegisterEventHandler(ISafetyEventHandler handler)
+        {
+            _eventHandlerManager.RegisterHandler(handler);
+            System.Diagnostics.Debug.WriteLine($"SafetyDetectionService: Registered custom handler - {handler.Name}");
+        }
+        
+        /// <summary>
+        /// 이벤트 핸들러 제거
+        /// </summary>
+        public void UnregisterEventHandler<T>() where T : ISafetyEventHandler
+        {
+            _eventHandlerManager.UnregisterHandler<T>();
+            System.Diagnostics.Debug.WriteLine($"SafetyDetectionService: Unregistered handler - {typeof(T).Name}");
+        }
+        
         public void Dispose()
         {
             if (_disposed) return;
             
+            _eventHandlerManager?.Dispose();
             _cameraZones.Clear();
             _lastAlertTime.Clear();
             _disposed = true;
