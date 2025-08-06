@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using SafetyVisionMonitor.Models;
@@ -14,6 +15,7 @@ namespace SafetyVisionMonitor.Services
     {
         private readonly ConcurrentDictionary<string, PersonTrackingService> _trackingServices = new();
         private readonly ConcurrentDictionary<string, List<TrackedPerson>> _latestTrackedPersons = new();
+        private readonly ConcurrentDictionary<string, AcrylicRegionFilter> _acrylicFilters = new();
         private TrackingConfiguration? _globalTrackingConfig;
         private bool _disposed = false;
         
@@ -91,7 +93,21 @@ namespace SafetyVisionMonitor.Services
                 _trackingServices[cameraId] = trackingService;
                 _latestTrackedPersons[cameraId] = new List<TrackedPerson>();
                 
-                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Initialized tracking for camera {cameraId}");
+                // 아크릴 필터 초기화 및 설정 파일 로드
+                var acrylicFilter = new AcrylicRegionFilter(cameraId);
+                var acrylicFilePath = Path.Combine("Config", "Acrylic", $"camera_{cameraId}_boundary.json");
+                
+                // 디렉토리 생성
+                var acrylicDirectory = Path.GetDirectoryName(acrylicFilePath);
+                if (!string.IsNullOrEmpty(acrylicDirectory) && !Directory.Exists(acrylicDirectory))
+                {
+                    Directory.CreateDirectory(acrylicDirectory);
+                }
+                
+                acrylicFilter.LoadFromFile(acrylicFilePath);
+                _acrylicFilters[cameraId] = acrylicFilter;
+                
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Initialized tracking and acrylic filter for camera {cameraId}");
             }
         }
         
@@ -113,8 +129,13 @@ namespace SafetyVisionMonitor.Services
             {
                 // 사람만 필터링 (문자열에서 "person" 포함 여부 확인)
                 var personDetections = detections.Where(d => d.ClassName?.ToLower()?.Contains("person") == true).ToList();
-                if(personDetections.Count > 0)
-                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Detected {personDetections.Count} people for {cameraId}");
+                
+                // 아크릴 필터링 적용 (경계선 기준으로 내부/외부 판단 및 필터링)
+                if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
+                {
+                    personDetections = acrylicFilter.FilterDetections(personDetections);
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Acrylic filtered {personDetections.Count} detections for {cameraId}");
+                }
                 
                 // 추적 업데이트
                 var trackedPersons = trackingService.UpdateTracking(personDetections, cameraId);
@@ -264,6 +285,110 @@ namespace SafetyVisionMonitor.Services
             System.Diagnostics.Debug.WriteLine("BackgroundTrackingService: All tracking reset");
         }
         
+        /// <summary>
+        /// 카메라의 아크릴 필터 가져오기
+        /// </summary>
+        public AcrylicRegionFilter? GetAcrylicFilter(string cameraId)
+        {
+            _acrylicFilters.TryGetValue(cameraId, out var filter);
+            return filter;
+        }
+        
+        /// <summary>
+        /// 카메라에 아크릴 경계선 설정
+        /// </summary>
+        public void SetAcrylicBoundary(string cameraId, System.Drawing.Point[] boundary)
+        {
+            InitializeCameraTracking(cameraId); // 아크릴 필터 초기화 보장
+            
+            if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
+            {
+                acrylicFilter.SetAcrylicBoundary(boundary);
+                
+                // 설정 파일에 저장
+                var acrylicFilePath = Path.Combine("Config", "Acrylic", $"camera_{cameraId}_boundary.json");
+                acrylicFilter.SaveToFile(acrylicFilePath);
+                
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Set acrylic boundary for camera {cameraId} with {boundary.Length} points");
+            }
+        }
+        
+        /// <summary>
+        /// 카메라의 추적 모드 설정
+        /// </summary>
+        public void SetTrackingMode(string cameraId, TrackingMode mode)
+        {
+            InitializeCameraTracking(cameraId);
+            
+            if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
+            {
+                acrylicFilter.SetTrackingMode(mode);
+                
+                // 설정 파일에 저장
+                var acrylicFilePath = Path.Combine("Config", "Acrylic", $"camera_{cameraId}_boundary.json");
+                acrylicFilter.SaveToFile(acrylicFilePath);
+                
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Set tracking mode to {mode} for camera {cameraId}");
+            }
+        }
+        
+        /// <summary>
+        /// 카메라의 아크릴 영역 통계 조회
+        /// </summary>
+        public AcrylicRegionStats? GetAcrylicStats(string cameraId, List<DetectionResult> detections)
+        {
+            if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
+            {
+                return acrylicFilter.GetStats(detections);
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// 카메라의 아크릴 경계선 제거
+        /// </summary>
+        public void ClearAcrylicBoundary(string cameraId)
+        {
+            if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
+            {
+                acrylicFilter.ClearBoundary();
+                
+                // 설정 파일에 저장
+                var acrylicFilePath = Path.Combine("Config", "Acrylic", $"camera_{cameraId}_boundary.json");
+                acrylicFilter.SaveToFile(acrylicFilePath);
+                
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Cleared acrylic boundary for camera {cameraId}");
+            }
+        }
+        
+        /// <summary>
+        /// 카메라의 아크릴 경계선 시각화
+        /// </summary>
+        public OpenCvSharp.Mat? VisualizeAcrylicBoundary(string cameraId, OpenCvSharp.Mat frame)
+        {
+            if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
+            {
+                return acrylicFilter.VisualizeAcrylicBoundary(frame);
+            }
+            return null;
+        }
+        
+        /// <summary>
+        /// 카메라의 프레임 크기 설정 (아크릴 필터용)
+        /// </summary>
+        public void SetCameraFrameSize(string cameraId, System.Drawing.Size frameSize)
+        {
+            InitializeCameraTracking(cameraId); // 아크릴 필터 초기화 보장
+            
+            if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
+            {
+                // System.Drawing.Size를 OpenCvSharp.Size로 변환
+                var cvSize = new OpenCvSharp.Size(frameSize.Width, frameSize.Height);
+                acrylicFilter.SetFrameSize(cvSize);
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Set frame size {frameSize} for camera {cameraId}");
+            }
+        }
+        
         public void Dispose()
         {
             if (_disposed) return;
@@ -271,6 +396,13 @@ namespace SafetyVisionMonitor.Services
             // PersonTrackingService는 IDisposable을 구현하지 않으므로 단순히 컬렉션만 정리
             _trackingServices.Clear();
             _latestTrackedPersons.Clear();
+            
+            // 아크릴 필터 정리
+            foreach (var acrylicFilter in _acrylicFilters.Values)
+            {
+                acrylicFilter.Dispose();
+            }
+            _acrylicFilters.Clear();
             
             _disposed = true;
             System.Diagnostics.Debug.WriteLine("BackgroundTrackingService: Disposed");

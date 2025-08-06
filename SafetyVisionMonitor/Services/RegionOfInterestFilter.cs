@@ -7,6 +7,7 @@ using System.Text.Json;
 using OpenCvSharp;
 using SafetyVisionMonitor.Models;
 using Point = System.Drawing.Point;
+using Size = OpenCvSharp.Size;
 
 namespace SafetyVisionMonitor.Services
 {
@@ -149,7 +150,7 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         private void UpdateMaskImage()
         {
-            if (_frameSize.IsEmpty) return;
+            if (_frameSize.Width <= 0 || _frameSize.Height <= 0) return;
 
             _maskImage?.Dispose();
             _maskImage = new Mat(_frameSize.Height, _frameSize.Width, MatType.CV_8UC1, new Scalar(0));

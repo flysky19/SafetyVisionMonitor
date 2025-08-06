@@ -4,6 +4,27 @@ using System.Drawing;
 namespace SafetyVisionMonitor.Models
 {
     /// <summary>
+    /// 사람의 아크릴 영역 내 위치
+    /// </summary>
+    public enum PersonLocation
+    {
+        Unknown,    // 판단 불가
+        Interior,   // 아크릴 내부
+        Exterior    // 아크릴 외부
+    }
+
+    /// <summary>
+    /// 아크릴 영역 추적 모드
+    /// </summary>
+    public enum TrackingMode
+    {
+        InteriorOnly,    // 내부만 추적
+        ExteriorOnly,    // 외부만 추적  
+        Both,           // 둘 다 추적 (구분해서 표시)
+        InteriorAlert   // 내부에 있을 때만 알림
+    }
+
+    /// <summary>
     /// YOLO 객체 검출 결과
     /// </summary>
     public class DetectionResult
@@ -42,6 +63,11 @@ namespace SafetyVisionMonitor.Models
         /// 객체 추적 ID (연속 프레임에서 동일 객체 식별용)
         /// </summary>
         public int? TrackingId { get; set; }
+        
+        /// <summary>
+        /// 사람의 아크릴 영역 내 위치 (사람 객체에만 적용)
+        /// </summary>
+        public PersonLocation Location { get; set; } = PersonLocation.Unknown;
         
         /// <summary>
         /// 바운딩 박스의 중심점

@@ -54,6 +54,17 @@
                                 IsChecked="{Binding ShowDangerZones}"
                                 Foreground="Red" Margin="0,0,15,0"/>
                         
+                        <!-- 아크릴 경계선 설정 버튼 -->
+                        <Button Content="아크릴 경계선 설정" 
+                                Command="{Binding SetupAcrylicBoundaryCommand}"
+                                Background="#4CAF50" Foreground="White"
+                                Padding="8,4" Margin="0,0,10,0"
+                                ToolTip="아크릴 벽면의 경계선을 설정하여 내부/외부 구분"/>
+                        <CheckBox Content="경계선 표시" 
+                                  IsChecked="{Binding ShowROIRegions}"
+                                  Foreground="LightBlue" Margin="0,0,15,0"
+                                  ToolTip="설정된 아크릴 경계선을 화면에 표시합니다"/>
+                        
                         <!-- 디버그 옵션 -->
                         <Separator Background="#444" Height="1" Margin="15,5"/>
                         <CheckBox Content="모든 검출 항목 표시" 
@@ -122,11 +133,23 @@
                                 
                                 <!-- 상태바 -->
                                 <Border Grid.Row="2" Background="#222">
-                                    <TextBlock Foreground="LightGray" Margin="5,2" FontSize="11">
-                                        <Run Text="검출: "/><Run Text="{Binding DetectionCount}" Foreground="Yellow"/>
-                                        <Run Text=" | FPS: "/><Run Text="{Binding DataContext.ProcessedFps, 
-                                                                         RelativeSource={RelativeSource AncestorType=UserControl}}"/>
-                                    </TextBlock>
+                                    <Grid>
+                                        <TextBlock Foreground="LightGray" Margin="5,2" FontSize="11" VerticalAlignment="Center">
+                                            <Run Text="검출: "/><Run Text="{Binding DetectionCount}" Foreground="Yellow"/>
+                                            <Run Text=" | FPS: "/><Run Text="{Binding DataContext.ProcessedFps, 
+                                                                             RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                        </TextBlock>
+                                        
+                                        <!-- 카메라별 ROI 설정 버튼 -->
+                                        <Button Content="영역설정" 
+                                                Command="{Binding DataContext.SetupCameraROICommand, 
+                                                        RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding CameraId}"
+                                                Background="#4CAF50" Foreground="White"
+                                                FontSize="9" Padding="4,1" Margin="0,1,3,1"
+                                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                ToolTip="이 카메라의 아크릴 영역을 설정합니다"/>
+                                    </Grid>
                                 </Border>
                             </Grid>
                         </Border>

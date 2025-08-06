@@ -67,6 +67,10 @@ namespace SafetyVisionMonitor.ViewModels
         [ObservableProperty]
         private bool showTrackingPaths = true;
         
+        // ROI 관련 속성
+        [ObservableProperty]
+        private bool showROIRegions = false;
+        
         /// <summary>
         /// ShowTrackingIds 속성 변경 시 백그라운드 서비스에 반영
         /// </summary>
@@ -771,6 +775,160 @@ namespace SafetyVisionMonitor.ViewModels
             await LoadZoneOverlaysAsync();
         }
         
+        [RelayCommand]
+        private async Task SetupAcrylicBoundary()
+        {
+            try
+            {
+                // 카메라 선택
+                var selectedCamera = await SelectCameraForAcrylicSetup();
+                if (selectedCamera == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("No camera selected for acrylic boundary setup");
+                    return;
+                }
+
+                await SetupCameraAcrylicBoundary(selectedCamera.CameraId);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error setting up acrylic boundary: {ex.Message}");
+            }
+        }
+
+        [RelayCommand]
+        private async Task SetupCameraAcrylicBoundary(string cameraId)
+        {
+            try
+            {
+                // 해당 카메라 찾기
+                var camera = Cameras.FirstOrDefault(c => c.CameraId == cameraId);
+                if (camera == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Camera not found: {cameraId}");
+                    return;
+                }
+
+                // 현재 프레임 가져오기
+                Mat? currentFrame = null;
+                if (camera.CurrentFrame != null)
+                {
+                    currentFrame = camera.CurrentFrame.ToMat();
+                }
+
+                if (currentFrame == null || currentFrame.Empty())
+                {
+                    System.Diagnostics.Debug.WriteLine($"No current frame available for camera {cameraId}");
+                    return;
+                }
+
+                // 아크릴 경계선 선택 도구 실행
+                using var boundarySelector = new AcrylicBoundarySelector($"아크릴 경계선 설정 - {camera.CameraName} ({cameraId})");
+                var boundary = await boundarySelector.SelectBoundaryAsync(currentFrame);
+
+                if (boundary.Length >= 3)
+                {
+                    var trackingService = App.TrackingService;
+                    if (trackingService != null)
+                    {
+                        // 아크릴 경계선 설정
+                        trackingService.SetAcrylicBoundary(cameraId, boundary);
+
+                        // 프레임 크기 설정
+                        trackingService.SetCameraFrameSize(cameraId, new System.Drawing.Size(currentFrame.Width, currentFrame.Height));
+
+                        System.Diagnostics.Debug.WriteLine($"Acrylic boundary updated for camera {cameraId}: {boundary.Length} points");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"Invalid boundary for camera {cameraId}: {boundary.Length} points (minimum 3 required)");
+                }
+
+                currentFrame?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error setting up acrylic boundary for camera {cameraId}: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 아크릴 경계선 설정을 위한 카메라 선택
+        /// </summary>
+        private async Task<CameraViewModel?> SelectCameraForAcrylicSetup()
+        {
+            if (!Cameras.Any())
+            {
+                System.Diagnostics.Debug.WriteLine("No cameras available");
+                return null;
+            }
+
+            // 카메라가 1개면 자동 선택
+            if (Cameras.Count == 1)
+            {
+                return Cameras[0];
+            }
+
+            // 여러 카메라가 있으면 선택 대화상자 표시
+            return await ShowCameraSelectionDialog();
+        }
+
+        /// <summary>
+        /// 카메라 선택 대화상자 표시
+        /// </summary>
+        private async Task<CameraViewModel?> ShowCameraSelectionDialog()
+        {
+            var cameraOptions = Cameras
+                .Select(c => $"{c.CameraName} (ID: {c.CameraId}) - {(c.IsConnected ? "연결됨" : "미연결")}")
+                .ToArray();
+
+            // 간단한 선택 대화상자
+            var selectedIndex = await ShowSelectionDialog("카메라 선택", 
+                "아크릴 경계선을 설정할 카메라를 선택하세요:", cameraOptions);
+
+            return selectedIndex >= 0 && selectedIndex < Cameras.Count 
+                ? Cameras[selectedIndex] 
+                : null;
+        }
+
+        /// <summary>
+        /// 선택 대화상자 표시 (간단한 구현)
+        /// </summary>
+        private async Task<int> ShowSelectionDialog(string title, string message, string[] options)
+        {
+            return await Task.Run(() =>
+            {
+                // 콘솔 기반 선택 (추후 WPF 대화상자로 개선 가능)
+                System.Diagnostics.Debug.WriteLine($"\n=== {title} ===");
+                System.Diagnostics.Debug.WriteLine(message);
+                
+                for (int i = 0; i < options.Length; i++)
+                {
+                    System.Diagnostics.Debug.WriteLine($"{i + 1}. {options[i]}");
+                }
+
+                // 첫 번째 연결된 카메라를 자동 선택
+                for (int i = 0; i < Cameras.Count; i++)
+                {
+                    if (Cameras[i].IsConnected && Cameras[i].CurrentFrame != null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"자동 선택: {options[i]}");
+                        return i;
+                    }
+                }
+
+                // 연결된 카메라가 없으면 첫 번째 카메라 선택
+                if (options.Length > 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"기본 선택: {options[0]}");
+                    return 0;
+                }
+
+                return -1;
+            });
+        }
+        
         // Zone의 IsEnabled 상태 변경 시 호출되는 메서드
         partial void OnShowWarningZonesChanged(bool value)
         {
@@ -1152,24 +1310,65 @@ namespace SafetyVisionMonitor.ViewModels
                 // 프레임 복사본 생성
                 var drawFrame = frame.Clone();
                 
+                // 아크릴 경계선 시각화 (체크박스 설정 확인)
+                if (ShowROIRegions && App.TrackingService != null)
+                {
+                    var boundaryVisualization = App.TrackingService.VisualizeAcrylicBoundary(cameraId, drawFrame);
+                    if (boundaryVisualization != null)
+                    {
+                        drawFrame.Dispose();
+                        drawFrame = boundaryVisualization;
+                    }
+                }
+                
                 // 추적 경로 그리기 (체크박스 설정 확인)
                 foreach (var person in trackedPersons.Where(p => p.IsActive))
                 {
-                    // 추적 ID별 색상 결정
-                    var colors = new[]
-                    {
-                        new Scalar(255, 0, 0),    // 빨강
-                        new Scalar(0, 255, 0),    // 초록
-                        new Scalar(0, 0, 255),    // 파랑
-                        new Scalar(255, 255, 0),  // 노랑
-                        new Scalar(255, 0, 255),  // 마젠타
-                        new Scalar(0, 255, 255),  // 시안
-                        new Scalar(255, 128, 0),  // 주황
-                        new Scalar(128, 0, 255)   // 보라
-                    };
+                    // 해당 사람의 최신 검출 결과에서 위치 정보 가져오기
+                    var personDetection = detections.FirstOrDefault(d => d.TrackingId == person.TrackingId);
+                    var location = personDetection?.Location ?? PersonLocation.Unknown;
                     
-                    var colorIndex = person.TrackingId % colors.Length;
-                    var pathColor = colors[colorIndex];
+                    // 위치에 따른 색상 결정 (내부/외부 구분)
+                    Scalar pathColor;
+                    if (location == PersonLocation.Interior)
+                    {
+                        // 내부에 있는 사람: 빨간색 계열 (경고)
+                        var interiorColors = new[]
+                        {
+                            new Scalar(0, 0, 255),    // 빨강
+                            new Scalar(0, 0, 200),    // 진한 빨강
+                            new Scalar(0, 100, 255),  // 빨강-보라
+                            new Scalar(100, 0, 255),  // 보라-빨강
+                        };
+                        var colorIndex = person.TrackingId % interiorColors.Length;
+                        pathColor = interiorColors[colorIndex];
+                    }
+                    else if (location == PersonLocation.Exterior)
+                    {
+                        // 외부에 있는 사람: 초록색 계열 (안전)
+                        var exteriorColors = new[]
+                        {
+                            new Scalar(0, 255, 0),    // 초록
+                            new Scalar(0, 200, 0),    // 진한 초록
+                            new Scalar(0, 255, 100),  // 초록-시안
+                            new Scalar(100, 255, 0),  // 연두
+                        };
+                        var colorIndex = person.TrackingId % exteriorColors.Length;
+                        pathColor = exteriorColors[colorIndex];
+                    }
+                    else
+                    {
+                        // 위치 불명: 회색 계열
+                        var unknownColors = new[]
+                        {
+                            new Scalar(128, 128, 128), // 회색
+                            new Scalar(160, 160, 160), // 밝은 회색
+                            new Scalar(100, 100, 100), // 어두운 회색
+                            new Scalar(200, 200, 200), // 매우 밝은 회색
+                        };
+                        var colorIndex = person.TrackingId % unknownColors.Length;
+                        pathColor = unknownColors[colorIndex];
+                    }
                     
                     // UI 프레임 크기에 맞게 스케일링 (CameraService에서 0.5 스케일 적용)
                     var scale = 0.5f;
@@ -1229,16 +1428,57 @@ namespace SafetyVisionMonitor.ViewModels
                         (int)(person.BoundingBox.Y + person.BoundingBox.Height / 2) / 2
                     );
                     
-                    // 현재 위치에 원 표시 (항상)
-                    Cv2.Circle(drawFrame, centerPoint, 5, pathColor, -1);
+                    // 현재 위치에 원 표시 (위치에 따라 다른 크기와 스타일)
+                    if (location == PersonLocation.Interior)
+                    {
+                        // 내부: 큰 원 + 경고 테두리
+                        Cv2.Circle(drawFrame, centerPoint, 8, pathColor, -1); // 채워진 원
+                        Cv2.Circle(drawFrame, centerPoint, 10, new Scalar(0, 0, 255), 2); // 빨간 테두리
+                    }
+                    else if (location == PersonLocation.Exterior)
+                    {
+                        // 외부: 일반 원
+                        Cv2.Circle(drawFrame, centerPoint, 5, pathColor, -1);
+                    }
+                    else
+                    {
+                        // 위치 불명: 작은 원 + 점선 테두리
+                        Cv2.Circle(drawFrame, centerPoint, 4, pathColor, -1);
+                        Cv2.Circle(drawFrame, centerPoint, 6, new Scalar(128, 128, 128), 1);
+                    }
                     
-                    // ID 표시 (체크박스 확인)
+                    // ID 및 위치 정보 표시 (체크박스 확인)
                     if (ShowTrackingIds)
                     {
-                        var idText = $"#{person.TrackingId}";
-                        var textPos = new Point(centerPoint.X + 10, centerPoint.Y - 10);
+                        var locationText = location switch
+                        {
+                            PersonLocation.Interior => "내부",
+                            PersonLocation.Exterior => "외부", 
+                            _ => "불명"
+                        };
+                        
+                        var idText = $"#{person.TrackingId} ({locationText})";
+                        var textPos = new Point(centerPoint.X + 15, centerPoint.Y - 10);
+                        
+                        // 배경 색상 (위치에 따라)
+                        var backgroundColor = location switch
+                        {
+                            PersonLocation.Interior => new Scalar(0, 0, 100), // 어두운 빨강 배경
+                            PersonLocation.Exterior => new Scalar(0, 100, 0), // 어두운 초록 배경
+                            _ => new Scalar(50, 50, 50) // 회색 배경
+                        };
+                        
+                        // 텍스트 크기 계산
+                        var textSize = Cv2.GetTextSize(idText, HersheyFonts.HersheySimplex, 0.5, 1, out _);
+                        var backgroundRect = new Rect(textPos.X - 2, textPos.Y - textSize.Height - 2, 
+                                                     textSize.Width + 4, textSize.Height + 4);
+                        
+                        // 배경 그리기
+                        Cv2.Rectangle(drawFrame, backgroundRect, backgroundColor, -1);
+                        
+                        // 텍스트 그리기
                         Cv2.PutText(drawFrame, idText, textPos, HersheyFonts.HersheySimplex, 
-                                  0.6, new Scalar(255, 255, 255), 2);
+                                  0.5, new Scalar(255, 255, 255), 1);
                     }
                 }
                 
