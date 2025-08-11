@@ -473,7 +473,7 @@ namespace SafetyVisionMonitor.ViewModels
                             if (originalFrame != null && !originalFrame.Empty())
                             {
                                 // 디버그: 프레임 크기 정보 출력 (첫 번째 프레임에만)
-                                // System.Diagnostics.Debug.WriteLine($"UI Frame for camera {e.CameraId}: Size=({originalFrame.Width}x{originalFrame.Height})");
+                                System.Diagnostics.Debug.WriteLine($"DashboardView: UI Frame for camera {e.CameraId}: Size=({originalFrame.Width}x{originalFrame.Height})");
                                 
                                 // 프레임에 구역 오버레이 그리기
                                 var frameWithZones = DrawZoneOverlaysOnFrame(originalFrame, e.CameraId);
@@ -485,9 +485,25 @@ namespace SafetyVisionMonitor.ViewModels
                                 // UI 스레드에서 BitmapSource 변환
                                 var bitmap = ImageConverter.MatToBitmapSource(finalFrame);
                                 
-                                // 그려진 프레임들 해제
-                                frameWithZones.Dispose();
-                                if (finalFrame != frameWithZones) finalFrame.Dispose();
+                                // 그려진 프레임들 안전하게 해제
+                                try
+                                {
+                                    if (frameWithZones != null && !frameWithZones.IsDisposed)
+                                    {
+                                        frameWithZones.Dispose();
+                                    }
+                                    
+                                    if (finalFrame != null && !finalFrame.IsDisposed && 
+                                        !ReferenceEquals(finalFrame, frameWithZones) && 
+                                        !ReferenceEquals(finalFrame, originalFrame))
+                                    {
+                                        finalFrame.Dispose();
+                                    }
+                                }
+                                catch (Exception disposeEx)
+                                {
+                                    System.Diagnostics.Debug.WriteLine($"Frame disposal error: {disposeEx.Message}");
+                                }
         
                                 if (bitmap != null)
                                 {
@@ -955,6 +971,17 @@ namespace SafetyVisionMonitor.ViewModels
             System.Diagnostics.Debug.WriteLine($"Show detailed info changed: {value}");
         }
         
+        /// <summary>
+        /// ShowROIRegions 속성 변경 시 아크릴 경계선 표시/숨김 처리
+        /// </summary>
+        partial void OnShowROIRegionsChanged(bool value)
+        {
+            System.Diagnostics.Debug.WriteLine($"Show ROI regions (acrylic boundaries) changed: {value}");
+            
+            // 실시간 화면에 즉시 반영 - 다음 프레임부터 경계선 표시/숨김됨
+            // DrawZoneOverlaysOnFrame에서 ShowROIRegions 값을 확인하므로 별도 처리 불필요
+        }
+        
         private void OnZoneUpdated(object? sender, Services.ZoneUpdateEventArgs e)
         {
             App.Current.Dispatcher.Invoke(() =>
@@ -1031,6 +1058,26 @@ namespace SafetyVisionMonitor.ViewModels
                 var frameWidth = frameWithZones.Width;
                 var frameHeight = frameWithZones.Height;
                 
+                // 아크릴 경계선 그리기 (파란색)
+                if (ShowROIRegions)
+                {
+                    System.Diagnostics.Debug.WriteLine($"DashboardView: Drawing acrylic boundary for camera {cameraId} (ShowROIRegions: {ShowROIRegions})");
+                    var trackingService = App.TrackingService;
+                    if (trackingService != null)
+                    {
+                        var visualizedFrame = trackingService.VisualizeAcrylicBoundary(cameraId, frameWithZones);
+                        if (visualizedFrame != null)
+                        {
+                            frameWithZones.Dispose();
+                            frameWithZones = visualizedFrame;
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"DashboardView: No visualized frame returned for camera {cameraId}");
+                        }
+                    }
+                }
+                
                 // 경고 구역 그리기 (주황색)
                 if (ShowWarningZones && _cameraWarningZones.ContainsKey(cameraId))
                 {
@@ -1090,13 +1137,32 @@ namespace SafetyVisionMonitor.ViewModels
                     // 성능 최적화: 투명도가 낮은 경우 오버레이 생성하지 않음
                     if (zone.Opacity > 0.05)
                     {
-                        using (var overlay = frame.Clone())
+                        Mat? overlay = null;
+                        try
                         {
-                            Cv2.FillPoly(overlay, new Point[][] { points.ToArray() }, color);
-                            
-                            // 투명도 적용하여 원본과 합성
-                            var alpha = zone.Opacity;
-                            Cv2.AddWeighted(frame, 1.0 - alpha, overlay, alpha, 0, frame);
+                            overlay = frame.Clone();
+                            if (overlay != null && !overlay.IsDisposed)
+                            {
+                                Cv2.FillPoly(overlay, new Point[][] { points.ToArray() }, color);
+                                
+                                // 투명도 적용하여 원본과 합성 (OpenCV 연산 완료까지 기다림)
+                                var alpha = zone.Opacity;
+                                Cv2.AddWeighted(frame, 1.0 - alpha, overlay, alpha, 0, frame);
+                                
+                                // AddWeighted 연산 완료 후 안전하게 해제
+                            }
+                        }
+                        catch (Exception overlayEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Zone overlay error for {zone.Name}: {overlayEx.Message}");
+                        }
+                        finally
+                        {
+                            // AddWeighted 완료 후 안전하게 해제
+                            if (overlay != null && !overlay.IsDisposed)
+                            {
+                                overlay.Dispose();
+                            }
                         }
                     }
                     
@@ -1193,7 +1259,7 @@ namespace SafetyVisionMonitor.ViewModels
                     TotalTrackersCreated = App.MonitoringService.TotalTrackersCreated;
                 });
                 
-                System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Tracking update for {e.CameraId} - {e.TrackedPersons.Count} active tracks");
+                System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Tracking update received for {e.CameraId} - {e.TrackedPersons.Count} active tracks, {e.DetectionsWithTracking.Count} detections with tracking");
             }
             catch (Exception ex)
             {
@@ -1296,6 +1362,8 @@ namespace SafetyVisionMonitor.ViewModels
         /// </summary>
         private Mat DrawTrackingOverlaysOnFrame(Mat frame, string cameraId, List<DetectionResult>? detections)
         {
+            Mat? drawFrame = null;
+            
             try
             {
                 // 백그라운드 서비스에서 관리되는 추적 데이터 가져오기
@@ -1304,20 +1372,35 @@ namespace SafetyVisionMonitor.ViewModels
                 // 추적 데이터가 없거나 백그라운드 서비스를 사용할 수 없으면 원본 프레임 반환
                 if (!trackedPersons.Any() || App.TrackingService == null)
                 {
+                    if (!trackedPersons.Any())
+                        System.Diagnostics.Debug.WriteLine($"DashboardViewModel: No tracked persons for camera {cameraId}");
+                    if (App.TrackingService == null)
+                        System.Diagnostics.Debug.WriteLine($"DashboardViewModel: TrackingService is null");
                     return frame; // CameraService가 이미 기본 검출 박스를 그림
                 }
                 
+                System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Drawing tracking overlays for camera {cameraId} - {trackedPersons.Count} tracked persons");
+                
                 // 프레임 복사본 생성
-                var drawFrame = frame.Clone();
+                drawFrame = frame.Clone();
                 
                 // 아크릴 경계선 시각화 (체크박스 설정 확인)
                 if (ShowROIRegions && App.TrackingService != null)
                 {
+                    System.Diagnostics.Debug.WriteLine($"DashboardView: Drawing acrylic boundary for camera {cameraId} (ShowROIRegions: {ShowROIRegions})");
                     var boundaryVisualization = App.TrackingService.VisualizeAcrylicBoundary(cameraId, drawFrame);
-                    if (boundaryVisualization != null)
+                    if (boundaryVisualization != null && !ReferenceEquals(boundaryVisualization, drawFrame))
                     {
-                        drawFrame.Dispose();
+                        // 새로운 프레임이 반환된 경우에만 기존 프레임 해제
+                        if (!drawFrame.IsDisposed)
+                        {
+                            drawFrame.Dispose();
+                        }
                         drawFrame = boundaryVisualization;
+                    }
+                    else if (boundaryVisualization == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"DashboardView: No boundary visualization returned for camera {cameraId}");
                     }
                 }
                 
@@ -1487,6 +1570,20 @@ namespace SafetyVisionMonitor.ViewModels
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Tracking overlay error for camera {cameraId}: {ex.Message}");
+                
+                // drawFrame이 frame과 다른 경우에만 안전하게 해제
+                if (drawFrame != null && !drawFrame.IsDisposed && !ReferenceEquals(drawFrame, frame))
+                {
+                    try
+                    {
+                        drawFrame.Dispose();
+                    }
+                    catch (Exception disposeEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"DrawFrame disposal error: {disposeEx.Message}");
+                    }
+                }
+                
                 return frame; // 오류 발생 시 원본 프레임 반환
             }
         }

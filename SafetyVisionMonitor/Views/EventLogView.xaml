@@ -26,6 +26,11 @@
                 </StackPanel>
                 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <syncfusion:ButtonAdv Label="테스트 이벤트 추가" 
+                                          Command="{Binding AddTestEventCommand}"
+                                          Background="Orange"
+                                          Foreground="White"
+                                          Margin="0,0,10,0"/>
                     <syncfusion:ButtonAdv Label="새로고침" 
                                           Command="{Binding LoadEventsCommand}"
                                           Margin="0,0,10,0"/>
@@ -40,6 +45,7 @@
         <Border Grid.Row="1" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="0,0,0,10">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
@@ -67,15 +73,30 @@
                 </StackPanel>
                 
                 <!-- 카메라 필터 -->
-                <StackPanel Grid.Column="3">
+                <StackPanel Grid.Column="3" Margin="0,0,20,0">
                     <TextBlock Text="카메라" Foreground="Gray" Margin="0,0,0,5"/>
                     <ComboBox ItemsSource="{Binding Cameras}"
                             SelectedItem="{Binding SelectedCamera}"
                             Width="100"/>
                 </StackPanel>
                 
+                <!-- 조회 버튼 -->
+                <StackPanel Grid.Column="4" Margin="0,0,20,0" VerticalAlignment="Bottom">
+                    <syncfusion:ButtonAdv IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBoolConverter}}"
+                                          Command="{Binding LoadEventsCommand}"
+                                          Label="조 회"
+                                          Width="80"
+                                          Height="28"
+                                          Background="DodgerBlue"
+                                          Foreground="White"
+                                          BorderBrush="SteelBlue"
+                                          CornerRadius="3">
+                        <TextBlock Text="{Binding LoadButtonText}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                    </syncfusion:ButtonAdv>
+                </StackPanel>
+                
                 <!-- 통계 정보 -->
-                <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <StackPanel Grid.Column="5" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <TextBlock Foreground="White">
                         <Run Text="전체: "/><Run Text="{Binding TotalEventCount}" FontWeight="Bold"/>
                         <Run Text=" | 필터: "/><Run Text="{Binding FilteredEventCount}" FontWeight="Bold" Foreground="Yellow"/>
@@ -173,16 +194,65 @@
                                          Width="350"/>
                 
                 <!-- 미디어 -->
-                <syncfusion:GridTemplateColumn HeaderText="미디어" Width="80">
+                <syncfusion:GridTemplateColumn HeaderText="미디어" Width="150">
                     <syncfusion:GridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="📷" FontSize="16" 
-                                         Visibility="{Binding HasImage, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                         Margin="2,0"/>
-                                <TextBlock Text="🎥" FontSize="16" 
-                                         Visibility="{Binding HasVideo, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                         Margin="2,0"/>
+                                <!-- 이미지 버튼 -->
+                                <Button Content="📷" 
+                                        FontSize="16"
+                                        Width="25" Height="25"
+                                        Margin="2,0"
+                                        Background="LightBlue"
+                                        BorderThickness="1"
+                                        BorderBrush="Blue"
+                                        Foreground="White"
+                                        ToolTip="{Binding ImagePath}"
+                                        Command="{Binding DataContext.OpenImageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Visibility="{Binding HasImage, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        Cursor="Hand"/>
+                                
+                                <!-- 동영상 버튼 -->
+                                <Button Content="🎥" 
+                                        FontSize="16"
+                                        Width="25" Height="25"
+                                        Margin="2,0"
+                                        Background="LightCoral"
+                                        BorderThickness="1"
+                                        BorderBrush="Red"
+                                        Foreground="White"
+                                        ToolTip="{Binding VideoClipPath}"
+                                        Command="{Binding DataContext.OpenVideoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Visibility="{Binding HasVideo, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        Cursor="Hand"/>
+                                
+                                <!-- 폴더 열기 버튼 -->
+                                <Button Content="📁" 
+                                        FontSize="16"
+                                        Width="25" Height="25"
+                                        Margin="2,0"
+                                        Background="Gold"
+                                        BorderThickness="1"
+                                        BorderBrush="Orange"
+                                        Foreground="Black"
+                                        ToolTip="폴더 열기"
+                                        Command="{Binding DataContext.OpenFolderCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        CommandParameter="{Binding}"
+                                        Cursor="Hand"/>
+                                
+                                <!-- 디버깅용 임시 정보 표시 -->
+                                <!-- <TextBlock Text="{Binding HasImage}"  -->
+                                <!--           Foreground="Green"  -->
+                                <!--           FontSize="10"  -->
+                                <!--           Margin="2,0"  -->
+                                <!--           VerticalAlignment="Center"/> -->
+                                <!-- <TextBlock Text="{Binding HasVideo}"  -->
+                                <!--           Foreground="Red"  -->
+                                <!--           FontSize="10"  -->
+                                <!--           Margin="2,0"  -->
+                                <!--           VerticalAlignment="Center"/> -->
                             </StackPanel>
                         </DataTemplate>
                     </syncfusion:GridTemplateColumn.CellTemplate>

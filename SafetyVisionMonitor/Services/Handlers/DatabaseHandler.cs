@@ -11,7 +11,7 @@ namespace SafetyVisionMonitor.Services.Handlers
     public class DatabaseHandler : BaseSafetyEventHandler
     {
         public override string Name => "Database Handler";
-        public override int Priority => 300; // 데이터베이스 저장은 중간 우선순위
+        public override int Priority => 500; // MediaCaptureHandler(50) 완료 후 실행되도록 낮은 우선순위
 
         public override async Task HandleAsync(SafetyEventContext context)
         {
@@ -43,16 +43,29 @@ namespace SafetyVisionMonitor.Services.Handlers
             // 기본 정보는 이미 SafetyDetectionService에서 설정됨
             // 여기서는 추가 정보나 컨텍스트에서 얻은 정보를 보완
 
-            // 미디어 파일 경로 (다른 핸들러에서 설정했을 수 있음)
-            if (safetyEvent.ImagePath == null)
+            // 미디어 파일 경로 (MediaCaptureHandler에서 설정됨)
+            if (string.IsNullOrEmpty(safetyEvent.ImagePath))
             {
-                safetyEvent.ImagePath = context.GetProperty<string>("CapturedImagePath");
+                var capturedImagePath = context.GetProperty<string>("CapturedImagePath");
+                if (!string.IsNullOrEmpty(capturedImagePath))
+                {
+                    safetyEvent.ImagePath = capturedImagePath;
+                    System.Diagnostics.Debug.WriteLine($"DatabaseHandler: Updated ImagePath from context: {capturedImagePath}");
+                }
             }
 
-            if (safetyEvent.VideoClipPath == null)
+            if (string.IsNullOrEmpty(safetyEvent.VideoClipPath))
             {
-                safetyEvent.VideoClipPath = context.GetProperty<string>("RecordedVideoPath");
+                var recordedVideoPath = context.GetProperty<string>("RecordedVideoPath");
+                if (!string.IsNullOrEmpty(recordedVideoPath))
+                {
+                    safetyEvent.VideoClipPath = recordedVideoPath;
+                    System.Diagnostics.Debug.WriteLine($"DatabaseHandler: Updated VideoClipPath from context: {recordedVideoPath}");
+                }
             }
+
+            // 파일 경로 최종 확인 로그
+            System.Diagnostics.Debug.WriteLine($"DatabaseHandler: Final paths - Image: '{safetyEvent.ImagePath}', Video: '{safetyEvent.VideoClipPath}'");
 
             // 추적 ID 정보
             if (violation.Detection.TrackingId.HasValue)

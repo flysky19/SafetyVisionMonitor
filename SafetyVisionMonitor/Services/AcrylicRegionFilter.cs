@@ -19,12 +19,15 @@ namespace SafetyVisionMonitor.Services
         private Point[] _acrylicBoundary = Array.Empty<Point>();
         private TrackingMode _trackingMode = TrackingMode.Both;
         private Size _frameSize;
+        private Size _originalFrameSize; // JSON 파일에서 로드한 경계선 기준 해상도
         private string _cameraId;
         private Mat? _boundaryMask;
 
         public AcrylicRegionFilter(string cameraId)
         {
             _cameraId = cameraId;
+            // 기본값으로 초기화 (파일에서 로드하면 덮어씀)
+            _originalFrameSize = new Size(1920, 1080);
         }
 
         /// <summary>
@@ -33,8 +36,10 @@ namespace SafetyVisionMonitor.Services
         public void SetAcrylicBoundary(Point[] boundary)
         {
             _acrylicBoundary = boundary?.ToArray() ?? Array.Empty<Point>();
+            // 새로 경계선을 설정할 때는 현재 프레임 크기를 원본 기준으로 설정
+            _originalFrameSize = _frameSize;
             UpdateBoundaryMask();
-            System.Diagnostics.Debug.WriteLine($"AcrylicRegionFilter: Set boundary with {_acrylicBoundary.Length} points for camera {_cameraId}");
+            System.Diagnostics.Debug.WriteLine($"AcrylicRegionFilter: Set boundary with {_acrylicBoundary.Length} points for camera {_cameraId}, originalFrameSize: {_originalFrameSize.Width}x{_originalFrameSize.Height}");
         }
 
         /// <summary>
@@ -79,7 +84,8 @@ namespace SafetyVisionMonitor.Services
             {
                 if (IsPersonDetection(detection))
                 {
-                    // 사람 객체의 위치 판단
+                    // detection 좌표를 원본 프레임 크기로 변환하여 boundary와 비교
+                    // (boundary는 원본 해상도 기준으로 저장되어 있음)
                     var center = new Point((int)detection.Center.X, (int)detection.Center.Y);
                     var isInside = IsPointInsideAcrylicRegion(center);
                     
@@ -90,6 +96,8 @@ namespace SafetyVisionMonitor.Services
                     {
                         filteredDetections.Add(detection);
                     }
+                    
+                    System.Diagnostics.Debug.WriteLine($"AcrylicRegionFilter: Person at ({center.X}, {center.Y}) - {(isInside ? "Interior" : "Exterior")}, Mode: {_trackingMode}, ShouldTrack: {ShouldTrackPerson(detection.Location)}, BoundaryPoints: {_acrylicBoundary.Length}");
                 }
                 else
                 {
@@ -110,20 +118,38 @@ namespace SafetyVisionMonitor.Services
         }
 
         /// <summary>
-        /// 점이 아크릴 영역 내부에 있는지 확인
+        /// 점이 아크릴 영역 내부에 있는지 확인 (현재 프레임 크기 기준)
         /// </summary>
         private bool IsPointInsideAcrylicRegion(Point point)
         {
             if (_acrylicBoundary.Length < 3) return false;
 
-            // Ray casting algorithm
+            // detection 좌표를 boundary 좌표 시스템에 맞게 변환
+            // boundary는 _originalFrameSize 기준으로 저장되어 있고
+            // detection 좌표는 _frameSize 기준으로 들어옴
+            var currentWidth = _frameSize.Width > 0 ? _frameSize.Width : 1920;
+            var currentHeight = _frameSize.Height > 0 ? _frameSize.Height : 1080;
+            var originalWidth = _originalFrameSize.Width > 0 ? _originalFrameSize.Width : 1920;
+            var originalHeight = _originalFrameSize.Height > 0 ? _originalFrameSize.Height : 1080;
+            
+            // detection 좌표를 boundary 좌표계로 변환
+            var scaleX = (double)originalWidth / currentWidth;
+            var scaleY = (double)originalHeight / currentHeight;
+            var adjustedPoint = new Point(
+                (int)(point.X * scaleX),
+                (int)(point.Y * scaleY)
+            );
+            
+            System.Diagnostics.Debug.WriteLine($"AcrylicRegionFilter: Coordinate transformation for camera {_cameraId} - Original: ({point.X}, {point.Y}) -> Adjusted: ({adjustedPoint.X}, {adjustedPoint.Y}), Scale: {scaleX:F3}x{scaleY:F3}, CurrentFrame: {currentWidth}x{currentHeight}, OriginalFrame: {originalWidth}x{originalHeight}");
+
+            // Ray casting algorithm (원본 boundary 좌표와 비교)
             bool inside = false;
             int j = _acrylicBoundary.Length - 1;
 
             for (int i = 0; i < _acrylicBoundary.Length; i++)
             {
-                if (((_acrylicBoundary[i].Y > point.Y) != (_acrylicBoundary[j].Y > point.Y)) &&
-                    (point.X < (_acrylicBoundary[j].X - _acrylicBoundary[i].X) * (point.Y - _acrylicBoundary[i].Y) / 
+                if (((_acrylicBoundary[i].Y > adjustedPoint.Y) != (_acrylicBoundary[j].Y > adjustedPoint.Y)) &&
+                    (adjustedPoint.X < (_acrylicBoundary[j].X - _acrylicBoundary[i].X) * (adjustedPoint.Y - _acrylicBoundary[i].Y) / 
                                (_acrylicBoundary[j].Y - _acrylicBoundary[i].Y) + _acrylicBoundary[i].X))
                 {
                     inside = !inside;
@@ -165,42 +191,63 @@ namespace SafetyVisionMonitor.Services
         }
 
         /// <summary>
-        /// 아크릴 경계선 시각화
+        /// 아크릴 경계선 시각화 (현재 프레임 크기에 맞게 스케일링)
         /// </summary>
         public Mat VisualizeAcrylicBoundary(Mat frame)
         {
             if (_acrylicBoundary.Length < 3)
+            {
+                System.Diagnostics.Debug.WriteLine($"AcrylicRegionFilter: No boundary to visualize for camera {_cameraId} (boundary points: {_acrylicBoundary.Length})");
                 return frame;
+            }
 
             var visualization = frame.Clone();
-            var cvPoints = _acrylicBoundary.Select(p => new OpenCvSharp.Point(p.X, p.Y)).ToArray();
+            
+            // 현재 프레임 크기와 JSON 파일에 저장된 원본 경계선 기준 크기 간의 스케일 계산
+            var currentWidth = frame.Width;
+            var currentHeight = frame.Height;
+            
+            // JSON 파일에서 로드한 원본 frameSize를 사용 (경계선 좌표의 기준 해상도)
+            var originalWidth = _originalFrameSize.Width > 0 ? _originalFrameSize.Width : currentWidth;
+            var originalHeight = _originalFrameSize.Height > 0 ? _originalFrameSize.Height : currentHeight;
+            
+            var scaleX = (double)currentWidth / originalWidth;
+            var scaleY = (double)currentHeight / originalHeight;
+            
+            System.Diagnostics.Debug.WriteLine($"AcrylicRegionFilter: Scaling boundary for camera {_cameraId} - OriginalFromFile: {originalWidth}x{originalHeight}, Current: {currentWidth}x{currentHeight}, Scale: {scaleX:F3}x{scaleY:F3}");
+
+            // 경계 좌표를 현재 프레임 크기에 맞게 스케일링
+            var scaledPoints = _acrylicBoundary.Select(p => new OpenCvSharp.Point(
+                (int)(p.X * scaleX), 
+                (int)(p.Y * scaleY)
+            )).ToArray();
 
             // 반투명 내부 영역 표시
             var overlay = frame.Clone();
-            Cv2.FillPoly(overlay, new[] { cvPoints }, new Scalar(255, 255, 0, 100)); // 노란색
+            Cv2.FillPoly(overlay, new[] { scaledPoints }, new Scalar(255, 255, 0, 100)); // 노란색
             Cv2.AddWeighted(visualization, 0.8, overlay, 0.2, 0, visualization);
 
             // 경계선 (점선 효과)
-            for (int i = 0; i < cvPoints.Length; i++)
+            for (int i = 0; i < scaledPoints.Length; i++)
             {
-                var start = cvPoints[i];
-                var end = cvPoints[(i + 1) % cvPoints.Length];
+                var start = scaledPoints[i];
+                var end = scaledPoints[(i + 1) % scaledPoints.Length];
                 
                 // 점선 그리기
                 DrawDashedLine(visualization, start, end, new Scalar(0, 255, 255), 3); // 노란색 점선
             }
 
             // 경계점 표시
-            foreach (var point in cvPoints)
+            foreach (var point in scaledPoints)
             {
                 Cv2.Circle(visualization, point, 8, new Scalar(0, 255, 255), -1); // 노란색 원
                 Cv2.Circle(visualization, point, 8, new Scalar(0, 0, 0), 2); // 검은색 테두리
             }
 
             // 라벨 표시
-            if (cvPoints.Length > 0)
+            if (scaledPoints.Length > 0)
             {
-                var labelPos = cvPoints[0];
+                var labelPos = scaledPoints[0];
                 Cv2.PutText(visualization, "아크릴 경계", 
                           new OpenCvSharp.Point(labelPos.X, labelPos.Y - 15),
                           HersheyFonts.HersheySimplex, 0.7, new Scalar(0, 255, 255), 2);
@@ -256,7 +303,7 @@ namespace SafetyVisionMonitor.Services
                 AcrylicBoundary = _acrylicBoundary.ToArray(),
                 TrackingMode = _trackingMode,
                 Timestamp = DateTime.Now,
-                FrameSize = new { Width = _frameSize.Width, Height = _frameSize.Height }
+                FrameSize = new { Width = _originalFrameSize.Width, Height = _originalFrameSize.Height }
             };
 
             var options = new JsonSerializerOptions
@@ -295,7 +342,13 @@ namespace SafetyVisionMonitor.Services
 
                 if (data.FrameSize != null)
                 {
-                    _frameSize = new Size(data.FrameSize.Width, data.FrameSize.Height);
+                    _originalFrameSize = new Size(data.FrameSize.Width, data.FrameSize.Height);
+                    System.Diagnostics.Debug.WriteLine($"AcrylicRegionFilter: Loaded originalFrameSize from file: {_originalFrameSize.Width}x{_originalFrameSize.Height}");
+                }
+                else
+                {
+                    // FrameSize 정보가 없으면 기본값 유지
+                    System.Diagnostics.Debug.WriteLine($"AcrylicRegionFilter: No frameSize in file, using default: {_originalFrameSize.Width}x{_originalFrameSize.Height}");
                 }
 
                 UpdateBoundaryMask();

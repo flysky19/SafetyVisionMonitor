@@ -107,7 +107,7 @@ namespace SafetyVisionMonitor.Services
                 acrylicFilter.LoadFromFile(acrylicFilePath);
                 _acrylicFilters[cameraId] = acrylicFilter;
                 
-                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Initialized tracking and acrylic filter for camera {cameraId}");
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Initialized tracking and acrylic filter for camera {cameraId} (file: {acrylicFilePath})");
             }
         }
         
@@ -310,6 +310,19 @@ namespace SafetyVisionMonitor.Services
                 acrylicFilter.SaveToFile(acrylicFilePath);
                 
                 System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Set acrylic boundary for camera {cameraId} with {boundary.Length} points");
+            }
+        }
+
+        /// <summary>
+        /// 카메라의 아크릴 필터 새로고침 (파일에서 다시 로드)
+        /// </summary>
+        public void RefreshAcrylicFilter(string cameraId)
+        {
+            if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
+            {
+                var acrylicFilePath = Path.Combine("Config", "Acrylic", $"camera_{cameraId}_boundary.json");
+                acrylicFilter.LoadFromFile(acrylicFilePath);
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Refreshed acrylic filter for camera {cameraId}");
             }
         }
         

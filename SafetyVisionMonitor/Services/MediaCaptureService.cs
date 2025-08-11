@@ -226,7 +226,7 @@ namespace SafetyVisionMonitor.Services
 
                     System.Diagnostics.Debug.WriteLine($"MediaCaptureService: Storage cleanup needed - Current: {totalSize}MB, Max: {_maxStorageSizeMB}MB");
 
-                    // 날짜별 폴더를 오래된 순으로 정렬
+                    // 년-월 폴더를 오래된 순으로 정렬 (최상위 폴더 기준)
                     var directories = Directory.GetDirectories(_baseStoragePath)
                         .Select(d => new DirectoryInfo(d))
                         .OrderBy(d => d.CreationTime)
@@ -253,7 +253,9 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         private string GenerateImageFileName(string cameraId, string zoneId, DateTime timestamp)
         {
-            return $"violation_img_{cameraId}_{zoneId}_{timestamp:yyyyMMdd_HHmmss_fff}.jpg";
+            // 폴더가 세분화되어 있으므로 파일명은 간단하게
+            // 예: IMG_14-30-15_CAM001_Zone1.jpg
+            return $"IMG_{timestamp:HH-mm-ss}_{cameraId}_{zoneId}.jpg";
         }
 
         /// <summary>
@@ -261,17 +263,26 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         private string GenerateVideoFileName(string cameraId, string zoneId, DateTime timestamp)
         {
-            return $"violation_vid_{cameraId}_{zoneId}_{timestamp:yyyyMMdd_HHmmss_fff}.mp4";
+            // 폴더가 세분화되어 있으므로 파일명은 간단하게
+            // 예: VID_14-30-15_CAM001_Zone1.mp4
+            return $"VID_{timestamp:HH-mm-ss}_{cameraId}_{zoneId}.mp4";
         }
 
         /// <summary>
-        /// 날짜별 저장 경로 생성
+        /// 날짜별 저장 경로 생성 (일자/시간/분 단위로 세분화)
         /// </summary>
         private string GetDailyStoragePath(DateTime date)
         {
-            var dailyPath = Path.Combine(_baseStoragePath, date.ToString("yyyy-MM-dd"));
-            EnsureDirectoryExists(dailyPath);
-            return dailyPath;
+            // 일자/시간/분 단위로 폴더 구조 생성
+            var yearMonth = date.ToString("yyyy-MM");
+            var day = date.ToString("dd");
+            var hour = date.ToString("HH");
+            var minute = date.ToString("mm");
+            
+            // 예: SafetyEvents/2024-01/15/14/30/
+            var detailedPath = Path.Combine(_baseStoragePath, yearMonth, day, hour, minute);
+            EnsureDirectoryExists(detailedPath);
+            return detailedPath;
         }
 
         /// <summary>

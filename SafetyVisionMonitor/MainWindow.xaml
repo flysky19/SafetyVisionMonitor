@@ -84,6 +84,12 @@
                         
                         <RadioButton Style="{StaticResource MenuButtonStyle}"
                                    Command="{Binding NavigateCommand}"
+                                   CommandParameter="AcrylicSetup">
+                            <TextBlock Text="아크릴 경계 설정" Foreground="White"/>
+                        </RadioButton>
+                        
+                        <RadioButton Style="{StaticResource MenuButtonStyle}"
+                                   Command="{Binding NavigateCommand}"
                                    CommandParameter="History">
                             <TextBlock Text="이력 조회" Foreground="White"/>
                         </RadioButton>
@@ -128,5 +134,48 @@
                          VerticalAlignment="Center" Foreground="White"/>
             </Grid>
         </Border>
+        
+        <!-- 알림 오버레이 -->
+        <Grid Grid.RowSpan="3" x:Name="AlertOverlay" Background="Transparent" Visibility="Collapsed">
+            <Border Background="#80000000" />
+            <Border x:Name="AlertPanel"
+                    Background="DarkRed"
+                    BorderBrush="Red"
+                    BorderThickness="2"
+                    CornerRadius="10"
+                    MaxWidth="600"
+                    MaxHeight="300"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Padding="30">
+                <StackPanel>
+                    <TextBlock x:Name="AlertTitle" 
+                              Text="🚨 긴급 위험 알림"
+                              FontSize="24"
+                              FontWeight="Bold"
+                              Foreground="White"
+                              HorizontalAlignment="Center"
+                              Margin="0,0,0,20"/>
+                    
+                    <TextBlock x:Name="AlertMessage"
+                              Text="작업자 (손 감지)가 위험구역에 진입했습니다."
+                              FontSize="16"
+                              Foreground="White"
+                              TextWrapping="Wrap"
+                              HorizontalAlignment="Center"
+                              Margin="0,0,0,30"/>
+                    
+                    <Button Content="확인"
+                            Width="100"
+                            Height="40"
+                            Background="Red"
+                            Foreground="White"
+                            BorderBrush="DarkRed"
+                            FontWeight="Bold"
+                            HorizontalAlignment="Center"
+                            Click="CloseAlert_Click"/>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </syncfusion:ChromelessWindow>

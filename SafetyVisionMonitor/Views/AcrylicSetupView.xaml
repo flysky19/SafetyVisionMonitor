@@ -1,0 +1,280 @@
+﻿<UserControl x:Class="SafetyVisionMonitor.Views.AcrylicSetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
+             mc:Ignorable="d" 
+             d:DesignHeight="800" d:DesignWidth="1200"
+             Loaded="OnLoaded">
+    
+    <Grid Background="#1A1A1A" Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- 헤더 -->
+        <Border Grid.Row="0" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="0,0,0,20">
+            <Grid>
+                <StackPanel>
+                    <TextBlock Text="아크릴 경계 설정" FontSize="24" FontWeight="Bold" Foreground="White"/>
+                    <TextBlock Text="카메라별 아크릴 경계선을 설정하여 내부/외부 영역을 구분합니다." 
+                             Foreground="Gray" Margin="0,5,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+        
+        <!-- 메인 콘텐츠 -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="400"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            
+            <!-- 왼쪽: 카메라 목록 및 설정 -->
+            <Border Grid.Column="0" Background="#2D2D30" CornerRadius="5" Padding="15" Margin="0,0,10,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- 카메라 목록 헤더 -->
+                    <TextBlock Grid.Row="0" Text="카메라 목록" FontSize="18" FontWeight="Bold" 
+                             Foreground="White" Margin="0,0,0,15"/>
+                    
+                    <!-- 카메라 목록 -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding Cameras}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#3D3D40" CornerRadius="5" Padding="10" Margin="0,0,0,10"
+                                           MouseDown="CameraItem_MouseDown" Cursor="Hand">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                        <Setter Property="Background" Value="#4A90E2"/>
+                                                        <Setter Property="BorderBrush" Value="#2171b5"/>
+                                                        <Setter Property="BorderThickness" Value="2"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            
+                                            <!-- 카메라 정보 -->
+                                            <Grid Grid.Row="0">
+                                                <StackPanel>
+                                                    <TextBlock Text="{Binding Name}" FontSize="16" 
+                                                             FontWeight="Bold" Foreground="White"/>
+                                                    <TextBlock Foreground="Gray" Margin="0,2,0,0">
+                                                        <TextBlock.Text>
+                                                            <MultiBinding StringFormat="ID: {0} - {1}">
+                                                                <Binding Path="Id"/>
+                                                                <Binding Path="Location"/>
+                                                            </MultiBinding>
+                                                        </TextBlock.Text>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                                
+                                                <Ellipse Width="12" Height="12" HorizontalAlignment="Right"
+                                                       Fill="{Binding HasBoundary, Converter={StaticResource BoolToColorConverter}}"
+                                                       ToolTip="{Binding BoundaryStatus}"/>
+                                            </Grid>
+                                            
+                                            <!-- 경계선 설정 상태 -->
+                                            <StackPanel Grid.Row="1" Margin="0,10,0,0">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="120"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    
+                                                    <TextBlock Grid.Column="0" Text="경계선 설정:" 
+                                                             Foreground="Gray" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1" 
+                                                             Text="{Binding BoundaryStatus}" 
+                                                             Foreground="{Binding HasBoundary, Converter={StaticResource BoolToColorConverter}}"
+                                                             FontWeight="Bold"/>
+                                                </Grid>
+                                                
+                                                <Grid Margin="0,5,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="120"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    
+                                                    <TextBlock Grid.Column="0" Text="추적 모드:" 
+                                                             Foreground="Gray" VerticalAlignment="Center"/>
+                                                    <ComboBox Grid.Column="1" 
+                                                            ItemsSource="{Binding DataContext.TrackingModes, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            SelectedItem="{Binding TrackingMode}"
+                                                            IsEnabled="{Binding HasBoundary}"/>
+                                                </Grid>
+                                            </StackPanel>
+                                            
+                                            <!-- 액션 버튼 -->
+                                            <StackPanel Grid.Row="2" Orientation="Horizontal" 
+                                                      HorizontalAlignment="Right" Margin="0,10,0,0">
+                                                <syncfusion:ButtonAdv Label="경계선 설정" 
+                                                                    Command="{Binding DataContext.SetupBoundaryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Width="100" Margin="0,0,5,0"/>
+                                                <syncfusion:ButtonAdv Label="삭제" 
+                                                                    Command="{Binding DataContext.DeleteBoundaryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                    CommandParameter="{Binding}"
+                                                                    Width="60"
+                                                                    IsEnabled="{Binding HasBoundary}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    
+                    <!-- 일괄 적용 옵션 -->
+                    <Border Grid.Row="2" Background="#3D3D40" CornerRadius="5" Padding="10" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="일괄 적용" FontWeight="Bold" Foreground="White" Margin="0,0,0,10"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                
+                                <TextBlock Grid.Column="0" Text="모든 카메라:" 
+                                         Foreground="Gray" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" 
+                                        ItemsSource="{Binding TrackingModes}"
+                                        SelectedItem="{Binding GlobalTrackingMode}"/>
+                            </Grid>
+                            <syncfusion:ButtonAdv Label="모든 카메라에 적용" 
+                                                Command="{Binding ApplyToAllCamerasCommand}"
+                                                HorizontalAlignment="Stretch" Margin="0,10,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+            
+            <!-- 오른쪽: 미리보기 및 시각화 설정 -->
+            <Border Grid.Column="1" Background="#2D2D30" CornerRadius="5" Padding="15">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    
+                    <!-- 미리보기 헤더 -->
+                    <Grid Grid.Row="0" Margin="0,0,0,15">
+                        <TextBlock Text="경계선 미리보기" FontSize="18" FontWeight="Bold" 
+                                 Foreground="White"/>
+                        <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center"
+                                 Foreground="Gray">
+                            <TextBlock.Text>
+                                <MultiBinding StringFormat="선택된 카메라: {0}">
+                                    <Binding Path="SelectedCamera.Name" FallbackValue="없음"/>
+                                </MultiBinding>
+                            </TextBlock.Text>
+                        </TextBlock>
+                    </Grid>
+                    
+                    <!-- 카메라 미리보기 -->
+                    <Border Grid.Row="1" Background="#1A1A1A" BorderBrush="#444" BorderThickness="1">
+                        <Grid x:Name="VideoContainer">
+                            <!-- 1. 카메라 이미지 (베이스 레이어) -->
+                            <Image x:Name="CameraImage"
+                                 Source="{Binding PreviewImage}" 
+                                 Stretch="Uniform"
+                                 HorizontalAlignment="Center"
+                                 VerticalAlignment="Center"/>
+                            
+                            <!-- 2. 경계선 오버레이 캔버스 (탑 레이어) -->
+                            <Canvas x:Name="BoundaryCanvas"
+                                  Background="Transparent"/>
+                            
+                            <!-- 3. 선택된 카메라가 없을 때 -->
+                            <TextBlock Text="카메라를 선택하여 경계선을 미리보기합니다"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center"
+                                     Foreground="Gray"
+                                     FontSize="16"
+                                     Visibility="{Binding SelectedCamera, Converter={StaticResource NullToVisibilityConverter}}"/>
+                        </Grid>
+                    </Border>
+                    
+                    <!-- 시각화 설정 -->
+                    <Border Grid.Row="2" Background="#3D3D40" CornerRadius="5" Padding="15" Margin="0,15,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <!-- 좌측 설정 -->
+                            <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                <TextBlock Text="시각화 설정" FontWeight="Bold" 
+                                         Foreground="White" Margin="0,0,0,10"/>
+                                
+                                <TextBlock Text="경계선 색상: 노란색 (고정)" Foreground="Gray" Margin="0,0,0,10"/>
+                                
+                                <TextBlock Text="경계선 두께" Foreground="Gray" Margin="0,0,0,5"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="50"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Slider Grid.Column="0" Value="{Binding BoundaryThickness}" 
+                                          Minimum="1" Maximum="5" TickFrequency="1"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding BoundaryThickness}" 
+                                             Foreground="White" HorizontalAlignment="Center"/>
+                                </Grid>
+                            </StackPanel>
+                            
+                            <!-- 우측 설정 -->
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Text="표시 옵션" FontWeight="Bold" 
+                                         Foreground="White" Margin="0,0,0,10"/>
+                                
+                                <CheckBox Content="대시보드에 경계선 표시" 
+                                        IsChecked="{Binding ShowBoundaryOnDashboard}"
+                                        Foreground="White" Margin="0,0,0,10"/>
+                                
+                                <TextBlock Text="투명도" Foreground="Gray" Margin="0,0,0,5"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="50"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Slider Grid.Column="0" Value="{Binding BoundaryOpacity}" 
+                                          Minimum="0.1" Maximum="1" TickFrequency="0.1"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding BoundaryOpacity, StringFormat={}{0:F1}}" 
+                                             Foreground="White" HorizontalAlignment="Center"/>
+                                </Grid>
+                                
+                                <syncfusion:ButtonAdv Label="설정 저장" 
+                                                    Command="{Binding SaveVisualizationSettingsCommand}"
+                                                    HorizontalAlignment="Stretch" Margin="0,15,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+        
+        <!-- 하단 상태바 -->
+        <Border Grid.Row="2" Background="#2D2D30" CornerRadius="5" Padding="10" Margin="0,10,0,0">
+            <TextBlock Text="{Binding StatusMessage}" Foreground="White"/>
+        </Border>
+    </Grid>
+</UserControl>

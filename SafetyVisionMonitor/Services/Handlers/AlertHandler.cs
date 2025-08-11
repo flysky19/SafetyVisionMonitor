@@ -72,11 +72,68 @@ namespace SafetyVisionMonitor.Services.Handlers
 
         private async Task ShowVisualAlertAsync(string message, AlertLevel level)
         {
-            // 향후 UI 통합 시 메인 윈도우에 알림 패널 표시
             await Task.Run(() =>
             {
-                // TODO: UI 알림 구현
-                System.Diagnostics.Debug.WriteLine($"AlertHandler: Visual alert - {level}: {message.Replace('\n', ' ')}");
+                try
+                {
+                    var title = level switch
+                    {
+                        AlertLevel.Critical => "🚨 긴급 위험 알림",
+                        AlertLevel.High => "⚠️ 높은 위험 알림", 
+                        AlertLevel.Warning => "⚠️ 경고 알림",
+                        _ => "ℹ️ 정보 알림"
+                    };
+                    
+                    // 메인 윈도우의 커스텀 알림 패널 사용
+                    if (SafetyVisionMonitor.MainWindow.Instance != null)
+                    {
+                        SafetyVisionMonitor.MainWindow.Instance.ShowSafetyAlert(
+                            title, 
+                            message, 
+                            level.ToString()
+                        );
+                        
+                        // 위험 레벨에 따른 자동 닫기 시간 설정
+                        var autoCloseDelay = level switch
+                        {
+                            AlertLevel.Critical => 0, // 수동으로만 닫기
+                            AlertLevel.High => 15,     // 15초 후 자동 닫기
+                            AlertLevel.Warning => 10,  // 10초 후 자동 닫기  
+                            _ => 5                     // 5초 후 자동 닫기
+                        };
+                        
+                        if (autoCloseDelay > 0)
+                        {
+                            SafetyVisionMonitor.MainWindow.Instance.AutoCloseAlert(autoCloseDelay);
+                        }
+                    }
+                    else
+                    {
+                        // 폴백: MessageBox 사용
+                        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
+                        {
+                            var icon = level switch
+                            {
+                                AlertLevel.Critical => System.Windows.MessageBoxImage.Error,
+                                AlertLevel.High => System.Windows.MessageBoxImage.Warning,
+                                AlertLevel.Warning => System.Windows.MessageBoxImage.Warning,
+                                _ => System.Windows.MessageBoxImage.Information
+                            };
+                            
+                            Task.Run(() =>
+                            {
+                                System.Windows.MessageBox.Show(message, title, 
+                                    System.Windows.MessageBoxButton.OK, icon);
+                            });
+                        });
+                    }
+                    
+                    System.Diagnostics.Debug.WriteLine($"AlertHandler: Visual alert shown - {level}: {message.Replace('\n', ' ')}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"AlertHandler: Visual alert error - {ex.Message}");
+                }
             });
         }
 

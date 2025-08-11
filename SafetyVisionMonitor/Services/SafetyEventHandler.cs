@@ -149,31 +149,26 @@ namespace SafetyVisionMonitor.Services
                     .ToList();
             }
 
-            var processingTasks = new List<Task>();
-
+            // 우선순위 순서대로 순차 실행 (파일 저장 완료 후 DB 저장)
             foreach (var handler in activeHandlers)
             {
                 try
                 {
-                    var task = Task.Run(async () =>
-                    {
-                        var startTime = DateTime.Now;
-                        await handler.HandleAsync(context);
-                        var elapsed = DateTime.Now - startTime;
-                        
-                        System.Diagnostics.Debug.WriteLine($"SafetyEventHandlerManager: Handler {handler.Name} completed in {elapsed.TotalMilliseconds:F1}ms");
-                    });
-
-                    processingTasks.Add(task);
+                    var startTime = DateTime.Now;
+                    
+                    System.Diagnostics.Debug.WriteLine($"SafetyEventHandlerManager: Starting handler {handler.Name} (Priority: {handler.Priority})");
+                    
+                    await handler.HandleAsync(context);
+                    
+                    var elapsed = DateTime.Now - startTime;
+                    System.Diagnostics.Debug.WriteLine($"SafetyEventHandlerManager: Handler {handler.Name} completed in {elapsed.TotalMilliseconds:F1}ms");
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"SafetyEventHandlerManager: Handler {handler.Name} failed - {ex.Message}");
+                    // 에러가 발생해도 다음 핸들러 계속 실행
                 }
             }
-
-            // 모든 핸들러 완료 대기 (병렬 처리)
-            await Task.WhenAll(processingTasks);
         }
 
         /// <summary>

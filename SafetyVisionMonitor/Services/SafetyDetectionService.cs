@@ -15,7 +15,7 @@ namespace SafetyVisionMonitor.Services
     {
         private readonly DatabaseService _databaseService;
         private readonly Dictionary<string, List<Zone3D>> _cameraZones = new();
-        private readonly Dictionary<string, DateTime> _lastAlertTime = new();
+        private readonly Dictionary<string, ZoneState> _zoneStates = new(); // 구역별 상태 추적
         private readonly TimeSpan _alertCooldown = TimeSpan.FromSeconds(5); // 5초 쿨다운
         private readonly SafetyEventHandlerManager _eventHandlerManager;
         
@@ -89,17 +89,21 @@ namespace SafetyVisionMonitor.Services
             
             try
             {
+                // 구역 상태 정리 (퇴장한 사람들 제거)
+                CleanupZoneStates(cameraId, detections);
+                
                 foreach (var detection in detections)
                 {
                     // 사람만 체크 (필요시 다른 객체도 확장 가능)
-                    if (detection.ClassName != "person")
+                    if (detection.ClassName.Contains("person") == false)
                         continue;
                     
                     var personViolations = new List<ZoneViolation>();
                     
                     foreach (var zone in zones)
                     {
-                        if (IsPersonInZone(detection, zone))
+                        var detectedBodyPart = GetPersonInZone(detection, zone);
+                        if (!string.IsNullOrEmpty(detectedBodyPart))
                         {
                             var violation = new ZoneViolation
                             {
@@ -107,15 +111,15 @@ namespace SafetyVisionMonitor.Services
                                 Zone = zone,
                                 ViolationType = GetViolationType(zone.Type),
                                 Timestamp = DateTime.Now,
-                                Confidence = detection.Confidence
+                                Confidence = detection.Confidence,
+                                DetectedBodyPart = detectedBodyPart
                             };
                             
                             personViolations.Add(violation);
                             result.Violations.Add(violation);
                             
-                            // 알림 쿨다운 체크
-                            var alertKey = $"{cameraId}_{zone.Id}";
-                            if (ShouldTriggerAlert(alertKey))
+                            // 스마트 알림 체크 (구역 상태 기반)
+                            if (ShouldTriggerSmartAlert(violation))
                             {
                                 await TriggerSafetyAlert(violation);
                             }
@@ -154,35 +158,97 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 사람이 특정 구역 안에 있는지 검사
+        /// 사람이 특정 구역 안에 있는지 검사하고 감지된 신체 부위 반환 (발, 손, 몸 전체 포함)
         /// </summary>
-        private bool IsPersonInZone(Models.DetectionResult detection, Zone3D zone)
+        /// <returns>감지된 신체 부위 이름, 없으면 빈 문자열</returns>
+        private string GetPersonInZone(Models.DetectionResult detection, Zone3D zone)
         {
             if (zone.FloorPoints.Count < 3)
-                return false;
+                return string.Empty;
             
             try
             {
-                // 검출된 사람의 바운딩 박스에서 발 위치 추정 (하단 중앙)
-                var personFootX = detection.BoundingBox.X + detection.BoundingBox.Width / 2;
-                var personFootY = detection.BoundingBox.Y + detection.BoundingBox.Height; // 바닥
+                var bbox = detection.BoundingBox;
                 
-                // 스크린 좌표를 월드 좌표로 변환
-                var worldPoint = CoordinateTransformService.ScreenToWorld(
-                    new System.Windows.Point(personFootX, personFootY),
-                    zone.CalibrationFrameWidth,
-                    zone.CalibrationFrameHeight,
-                    zone.CalibrationPixelsPerMeter
-                );
+                // 사람의 주요 신체 부위 좌표 계산
+                var checkPoints = new List<System.Windows.Point>();
                 
-                // Point-in-Polygon 알고리즘 (Ray Casting)
-                return IsPointInPolygon(worldPoint, zone.FloorPoints);
+                // 1. 발 위치 (하단 중앙) - 기존 방식
+                checkPoints.Add(new System.Windows.Point(
+                    bbox.X + bbox.Width / 2, 
+                    bbox.Y + bbox.Height
+                ));
+                
+                // 2. 왼손 추정 위치 (상단 왼쪽, 어깨 높이)
+                checkPoints.Add(new System.Windows.Point(
+                    bbox.X,
+                    bbox.Y + bbox.Height * 0.3 // 상단에서 30% 지점
+                ));
+                
+                // 3. 오른손 추정 위치 (상단 오른쪽, 어깨 높이)
+                checkPoints.Add(new System.Windows.Point(
+                    bbox.X + bbox.Width,
+                    bbox.Y + bbox.Height * 0.3
+                ));
+                
+                // 4. 몸 중앙 (허리 높이)
+                checkPoints.Add(new System.Windows.Point(
+                    bbox.X + bbox.Width / 2,
+                    bbox.Y + bbox.Height * 0.6
+                ));
+                
+                // 5. 머리 위치 (상단 중앙)
+                checkPoints.Add(new System.Windows.Point(
+                    bbox.X + bbox.Width / 2,
+                    bbox.Y
+                ));
+                
+                // 각 지점을 월드 좌표로 변환하여 구역 내부에 있는지 확인
+                for (int i = 0; i < checkPoints.Count; i++)
+                {
+                    var screenPoint = checkPoints[i];
+                    var worldPoint = CoordinateTransformService.ScreenToWorld(
+                        screenPoint,
+                        zone.CalibrationFrameWidth,
+                        zone.CalibrationFrameHeight,
+                        zone.CalibrationPixelsPerMeter
+                    );
+                    
+                    if (IsPointInPolygon(worldPoint, zone.FloorPoints))
+                    {
+                        // 감지된 신체 부위 이름
+                        var bodyPart = GetBodyPartName(i);
+                        System.Diagnostics.Debug.WriteLine(
+                            $"SafetyDetectionService: {bodyPart} detected in zone '{zone.Name}' " +
+                            $"(Camera: {detection.CameraId})");
+                        
+                        return bodyPart; // 첫 번째로 감지된 신체 부위 반환
+                    }
+                }
+                
+                return string.Empty; // 모든 지점이 구역 외부에 있음
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"SafetyDetectionService: Zone intersection check error: {ex.Message}");
-                return false;
+                return string.Empty;
             }
+        }
+        
+        /// <summary>
+        /// 체크 포인트 인덱스에 따른 신체 부위 이름 반환
+        /// </summary>
+        private string GetBodyPartName(int pointIndex)
+        {
+            return pointIndex switch
+            {
+                0 => "발",
+                1 => "왼손",
+                2 => "오른손", 
+                3 => "몸통",
+                4 => "머리",
+                _ => "신체"
+            };
         }
         
         /// <summary>
@@ -225,25 +291,96 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 알림 쿨다운 체크
+        /// 스마트 알림 판단 (구역 상태 기반)
         /// </summary>
-        private bool ShouldTriggerAlert(string alertKey)
+        private bool ShouldTriggerSmartAlert(ZoneViolation violation)
         {
+            var zoneKey = $"{violation.Detection.CameraId}_{violation.Zone.Id}";
+            var trackingId = violation.Detection.TrackingId ?? 0; // 추적ID가 없으면 0으로 처리
             var now = DateTime.Now;
             
-            if (!_lastAlertTime.ContainsKey(alertKey))
+            // 구역 상태 초기화
+            if (!_zoneStates.ContainsKey(zoneKey))
             {
-                _lastAlertTime[alertKey] = now;
-                return true;
+                _zoneStates[zoneKey] = new ZoneState();
             }
             
-            if (now - _lastAlertTime[alertKey] >= _alertCooldown)
+            var zoneState = _zoneStates[zoneKey];
+            
+            // 1. 새로운 사람이 구역에 진입한 경우
+            if (!zoneState.CurrentPersons.Contains(trackingId))
             {
-                _lastAlertTime[alertKey] = now;
-                return true;
+                // 진입 기록
+                zoneState.CurrentPersons.Add(trackingId);
+                zoneState.LastDetectedParts[trackingId] = violation.DetectedBodyPart;
+                zoneState.EntryTimes[trackingId] = now;
+                zoneState.LastAlertTime = now;
+                
+                System.Diagnostics.Debug.WriteLine(
+                    $"SafetyDetectionService: NEW ENTRY - Person {trackingId} ({violation.DetectedBodyPart}) " +
+                    $"entered zone '{violation.Zone.Name}' (Camera: {violation.Detection.CameraId})");
+                
+                return true; // 새 진입자는 무조건 알림
             }
             
-            return false;
+            // 2. 기존 사람의 새로운 신체 부위가 감지된 경우
+            var lastDetectedPart = zoneState.LastDetectedParts.GetValueOrDefault(trackingId, "");
+            if (lastDetectedPart != violation.DetectedBodyPart)
+            {
+                zoneState.LastDetectedParts[trackingId] = violation.DetectedBodyPart;
+                
+                // 중요한 신체 부위(손) 감지 시에만 추가 알림
+                if (violation.DetectedBodyPart.Contains("손") && !lastDetectedPart.Contains("손"))
+                {
+                    // 손 감지는 쿨다운 체크
+                    if (now - zoneState.LastAlertTime >= _alertCooldown)
+                    {
+                        zoneState.LastAlertTime = now;
+                        System.Diagnostics.Debug.WriteLine(
+                            $"SafetyDetectionService: HAND DETECTED - Person {trackingId} " +
+                            $"hand detected in zone '{violation.Zone.Name}' (was: {lastDetectedPart})");
+                        
+                        return true;
+                    }
+                }
+            }
+            
+            return false; // 기존 사람의 동일 또는 중요하지 않은 부위는 알림 없음
+        }
+        
+        /// <summary>
+        /// 구역에서 퇴장한 사람들 정리 (주기적 호출 필요)
+        /// </summary>
+        private void CleanupZoneStates(string cameraId, Models.DetectionResult[] currentDetections)
+        {
+            var currentTrackingIds = currentDetections
+                .Where(d => d.TrackingId.HasValue)
+                .Select(d => d.TrackingId.Value)
+                .ToHashSet();
+            
+            // 각 구역에서 현재 감지되지 않는 사람들 제거
+            var zonesToClean = _zoneStates.Keys
+                .Where(key => key.StartsWith($"{cameraId}_"))
+                .ToList();
+                
+            foreach (var zoneKey in zonesToClean)
+            {
+                var zoneState = _zoneStates[zoneKey];
+                var personsToRemove = zoneState.CurrentPersons
+                    .Where(personId => !currentTrackingIds.Contains(personId))
+                    .ToList();
+                    
+                foreach (var personId in personsToRemove)
+                {
+                    zoneState.CurrentPersons.Remove(personId);
+                    zoneState.LastDetectedParts.Remove(personId);
+                    zoneState.EntryTimes.Remove(personId);
+                    zoneState.AlertedPersons.Remove(personId);
+                    
+                    System.Diagnostics.Debug.WriteLine(
+                        $"SafetyDetectionService: Person {personId} left zone {zoneKey}");
+                }
+            }
         }
         
         /// <summary>
@@ -324,7 +461,11 @@ namespace SafetyVisionMonitor.Services
         private string GenerateEventDescription(ZoneViolation violation)
         {
             var zoneTypeName = violation.Zone.Type == ZoneType.Danger ? "위험구역" : "경고구역";
-            return $"작업자가 {zoneTypeName} '{violation.Zone.Name}'에 진입했습니다. " +
+            var bodyPartInfo = string.IsNullOrEmpty(violation.DetectedBodyPart) 
+                ? "" 
+                : $" ({violation.DetectedBodyPart} 감지)";
+            
+            return $"작업자{bodyPartInfo}가 {zoneTypeName} '{violation.Zone.Name}'에 진입했습니다. " +
                    $"신뢰도: {violation.Confidence:P1}";
         }
         
@@ -388,7 +529,7 @@ namespace SafetyVisionMonitor.Services
             
             _eventHandlerManager?.Dispose();
             _cameraZones.Clear();
-            _lastAlertTime.Clear();
+            _zoneStates.Clear();
             _disposed = true;
             
             System.Diagnostics.Debug.WriteLine("SafetyDetectionService: Disposed");
@@ -419,6 +560,11 @@ namespace SafetyVisionMonitor.Services
         public ViolationType ViolationType { get; set; }
         public DateTime Timestamp { get; set; }
         public float Confidence { get; set; }
+        
+        /// <summary>
+        /// 감지된 신체 부위 (발, 왼손, 오른손, 몸통, 머리)
+        /// </summary>
+        public string DetectedBodyPart { get; set; } = string.Empty;
     }
     
     /// <summary>
@@ -461,5 +607,36 @@ namespace SafetyVisionMonitor.Services
         public string CameraId { get; set; } = string.Empty;
         public ZoneViolation[] Violations { get; set; } = Array.Empty<ZoneViolation>();
         public DateTime Timestamp { get; set; }
+    }
+    
+    /// <summary>
+    /// 구역별 상태 추적 클래스
+    /// </summary>
+    public class ZoneState
+    {
+        /// <summary>
+        /// 현재 구역 내에 있는 사람들 (TrackingId)
+        /// </summary>
+        public HashSet<int> CurrentPersons { get; set; } = new();
+        
+        /// <summary>
+        /// 각 사람의 마지막 감지 신체 부위 (TrackingId -> BodyPart)
+        /// </summary>
+        public Dictionary<int, string> LastDetectedParts { get; set; } = new();
+        
+        /// <summary>
+        /// 마지막 알림 시간
+        /// </summary>
+        public DateTime LastAlertTime { get; set; } = DateTime.MinValue;
+        
+        /// <summary>
+        /// 구역 진입 시간 추적 (TrackingId -> EntryTime)
+        /// </summary>
+        public Dictionary<int, DateTime> EntryTimes { get; set; } = new();
+        
+        /// <summary>
+        /// 알림이 발생한 사람들 (TrackingId)
+        /// </summary>
+        public HashSet<int> AlertedPersons { get; set; } = new();
     }
 }

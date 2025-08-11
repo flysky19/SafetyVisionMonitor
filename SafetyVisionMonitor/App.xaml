@@ -48,6 +48,10 @@
                 <views:ModelConversionView/>
             </DataTemplate>
             
+            <DataTemplate DataType="{x:Type vm:AcrylicSetupViewModel}">
+                <views:AcrylicSetupView/>
+            </DataTemplate>
+            
             <DataTemplate DataType="{x:Type vm:ZoneSetupViewModel}">
                 <views:ZoneSetupView/>
             </DataTemplate>
@@ -62,13 +66,6 @@
             <DataTemplate DataType="{x:Type vm:TrackingSetupViewModel}">
                 <views:TrackingSetupView/>
             </DataTemplate>
-            
-            <!-- 나중에 추가할 다른 View들 -->
-            <!--
-            <DataTemplate DataType="{x:Type vm:CameraManageViewModel}">
-                <views:CameraManageView/>
-            </DataTemplate>
-            -->
             
         </ResourceDictionary>
     </Application.Resources>

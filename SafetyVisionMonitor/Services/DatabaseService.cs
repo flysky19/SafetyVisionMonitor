@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,9 @@ namespace SafetyVisionMonitor.Services
                 
                 // 데이터베이스 생성 또는 업데이트
                 context.Database.EnsureCreated();
+                
+                // SafetyEvents 테이블 구조 확인 및 재생성
+                RecreateeSafetyEventsTableIfNeeded(context);
                 
                 // 테이블 존재 확인 (디버깅용)
                 var tables = context.Database.GetPendingMigrations();
@@ -204,10 +208,116 @@ namespace SafetyVisionMonitor.Services
         // 안전 이벤트 저장
         public async Task<int> SaveSafetyEventAsync(SafetyEvent safetyEvent)
         {
-            using var context = new AppDbContext();
-            context.SafetyEvents.Add(safetyEvent);
-            await context.SaveChangesAsync();
-            return safetyEvent.Id;
+            try
+            {
+                using var context = new AppDbContext();
+                
+                // 저장 전 상태 로깅
+                System.Diagnostics.Debug.WriteLine($"DatabaseService.SaveSafetyEventAsync - BEFORE ADD:");
+                System.Diagnostics.Debug.WriteLine($"  ImagePath: '{safetyEvent.ImagePath}'");
+                System.Diagnostics.Debug.WriteLine($"  VideoClipPath: '{safetyEvent.VideoClipPath}'");
+                System.Diagnostics.Debug.WriteLine($"  EventType: '{safetyEvent.EventType}'");
+                
+                context.SafetyEvents.Add(safetyEvent);
+                
+                // SaveChanges 전 상태 확인
+                var entry = context.Entry(safetyEvent);
+                System.Diagnostics.Debug.WriteLine($"DatabaseService.SaveSafetyEventAsync - BEFORE SAVE:");
+                System.Diagnostics.Debug.WriteLine($"  Entity State: {entry.State}");
+                System.Diagnostics.Debug.WriteLine($"  ImagePath: '{safetyEvent.ImagePath}'");
+                System.Diagnostics.Debug.WriteLine($"  VideoClipPath: '{safetyEvent.VideoClipPath}'");
+                
+                await context.SaveChangesAsync();
+                
+                System.Diagnostics.Debug.WriteLine($"DatabaseService.SaveSafetyEventAsync - AFTER SAVE:");
+                System.Diagnostics.Debug.WriteLine($"  Generated ID: {safetyEvent.Id}");
+                System.Diagnostics.Debug.WriteLine($"  ImagePath: '{safetyEvent.ImagePath}'");
+                System.Diagnostics.Debug.WriteLine($"  VideoClipPath: '{safetyEvent.VideoClipPath}'");
+                
+                return safetyEvent.Id;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DatabaseService.SaveSafetyEventAsync ERROR: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                throw;
+            }
+        }
+        
+        // 특정 안전 이벤트 조회 (디버깅용)
+        public async Task<SafetyEvent?> GetSafetyEventAsync(int eventId)
+        {
+            try
+            {
+                using var context = new AppDbContext();
+                return await context.SafetyEvents.FindAsync(eventId);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Failed to get SafetyEvent {eventId}: {ex.Message}");
+                return null;
+            }
+        }
+        
+        // 안전 이벤트 삭제
+        public async Task<bool> DeleteSafetyEventAsync(int eventId)
+        {
+            try
+            {
+                using var context = new AppDbContext();
+                var safetyEvent = await context.SafetyEvents.FindAsync(eventId);
+                
+                if (safetyEvent != null)
+                {
+                    // 관련 미디어 파일도 삭제 시도 (선택사항)
+                    await DeleteAssociatedMediaFiles(safetyEvent);
+                    
+                    context.SafetyEvents.Remove(safetyEvent);
+                    await context.SaveChangesAsync();
+                    
+                    System.Diagnostics.Debug.WriteLine($"DatabaseService: SafetyEvent {eventId} deleted from database");
+                    return true;
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"DatabaseService: SafetyEvent {eventId} not found for deletion");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Failed to delete SafetyEvent {eventId}: {ex.Message}");
+                throw;
+            }
+        }
+        
+        // 연관된 미디어 파일 삭제 (선택사항)
+        private async Task DeleteAssociatedMediaFiles(SafetyEvent safetyEvent)
+        {
+            await Task.Run(() =>
+            {
+                try
+                {
+                    // 이미지 파일 삭제
+                    if (!string.IsNullOrEmpty(safetyEvent.ImagePath) && File.Exists(safetyEvent.ImagePath))
+                    {
+                        File.Delete(safetyEvent.ImagePath);
+                        System.Diagnostics.Debug.WriteLine($"DatabaseService: Deleted image file - {safetyEvent.ImagePath}");
+                    }
+                    
+                    // 동영상 파일 삭제
+                    if (!string.IsNullOrEmpty(safetyEvent.VideoClipPath) && File.Exists(safetyEvent.VideoClipPath))
+                    {
+                        File.Delete(safetyEvent.VideoClipPath);
+                        System.Diagnostics.Debug.WriteLine($"DatabaseService: Deleted video file - {safetyEvent.VideoClipPath}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"DatabaseService: Error deleting media files: {ex.Message}");
+                    // 미디어 파일 삭제 실패해도 DB 삭제는 계속 진행
+                }
+            });
         }
         
         // 안전 이벤트 조회
@@ -821,6 +931,136 @@ namespace SafetyVisionMonitor.Services
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to delete tracking zone {zoneId}: {ex.Message}");
                 throw;
+            }
+        }
+        
+        /// <summary>
+        /// SafetyEvents 테이블만 재생성 (다른 테이블은 건들지 않음)
+        /// </summary>
+        private void RecreateeSafetyEventsTableIfNeeded(AppDbContext context)
+        {
+            try
+            {
+                // SafetyEvents 테이블 구조 확인 - 더 안전한 방법
+                bool tableExists = false;
+                try
+                {
+                    var testCount = context.SafetyEvents.Count();
+                    tableExists = true;
+                }
+                catch
+                {
+                    tableExists = false;
+                }
+                
+                if (tableExists)
+                {
+                    // 새 컬럼이 있는지 확인하는 더 안전한 방법
+                    bool needsRecreation = false;
+                    try
+                    {
+                        // ProcessingTimeMs 컬럼이 있는지 확인
+                        var testQuery = context.SafetyEvents
+                            .Select(e => new { e.Id, e.ProcessingTimeMs })
+                            .FirstOrDefault();
+                    }
+                    catch
+                    {
+                        needsRecreation = true;
+                    }
+                    
+                    if (needsRecreation)
+                    {
+                        System.Diagnostics.Debug.WriteLine("SafetyEvents table structure is outdated");
+                        System.Diagnostics.Debug.WriteLine("Recreating SafetyEvents table with new structure...");
+                        
+                        // 기존 데이터 백업
+                        var backupQuery = @"
+                            CREATE TEMPORARY TABLE SafetyEvents_backup AS 
+                            SELECT * FROM SafetyEvents";
+                        context.Database.ExecuteSqlRaw(backupQuery);
+                        
+                        // 기존 테이블 삭제
+                        context.Database.ExecuteSqlRaw("DROP TABLE SafetyEvents");
+                        
+                        // 새 테이블 생성
+                        var createTableQuery = @"
+                            CREATE TABLE SafetyEvents (
+                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                Timestamp TEXT NOT NULL,
+                                EventType TEXT NOT NULL,
+                                CameraId TEXT NOT NULL,
+                                PersonTrackingId TEXT NULL,
+                                Confidence REAL NOT NULL,
+                                ImagePath TEXT NULL,
+                                VideoClipPath TEXT NULL,
+                                ZoneId TEXT NULL,
+                                Description TEXT NULL,
+                                BoundingBoxJson TEXT NULL,
+                                PersonBoundingBox TEXT NULL,
+                                Severity TEXT NULL,
+                                IsAcknowledged INTEGER NOT NULL DEFAULT 0,
+                                ProcessingTimeMs REAL NOT NULL DEFAULT 0,
+                                ProcessingStatus TEXT NULL,
+                                ImageFileSize INTEGER NULL,
+                                VideoFileSize INTEGER NULL,
+                                VideoDurationSeconds REAL NULL,
+                                NotificationStatus TEXT NULL,
+                                Metadata TEXT NULL,
+                                ResolvedTime TEXT NULL,
+                                ResolvedBy TEXT NULL,
+                                ResolutionNotes TEXT NULL
+                            )";
+                        context.Database.ExecuteSqlRaw(createTableQuery);
+                        
+                        // 기존 데이터 복원 (호환되는 컬럼만)
+                        var restoreQuery = @"
+                            INSERT INTO SafetyEvents (
+                                Id, Timestamp, EventType, CameraId, PersonTrackingId, 
+                                Confidence, ImagePath, VideoClipPath, ZoneId, Description, 
+                                BoundingBoxJson, PersonBoundingBox, Severity, IsAcknowledged
+                            )
+                            SELECT 
+                                Id, Timestamp, EventType, CameraId, PersonTrackingId,
+                                Confidence, ImagePath, VideoClipPath, ZoneId, Description,
+                                BoundingBoxJson, PersonBoundingBox, Severity, IsAcknowledged
+                            FROM SafetyEvents_backup
+                            WHERE Id IS NOT NULL";
+                            
+                        try
+                        {
+                            context.Database.ExecuteSqlRaw(restoreQuery);
+                            System.Diagnostics.Debug.WriteLine("SafetyEvents: Existing data restored to new table structure");
+                        }
+                        catch (Exception restoreEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"SafetyEvents: Could not restore data: {restoreEx.Message}");
+                        }
+                        
+                        // 백업 테이블 삭제
+                        context.Database.ExecuteSqlRaw("DROP TABLE SafetyEvents_backup");
+                        
+                        // 인덱스 재생성
+                        context.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_SafetyEvent_Timestamp ON SafetyEvents(Timestamp)");
+                        context.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_SafetyEvent_EventType ON SafetyEvents(EventType)");
+                        context.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_SafetyEvent_CameraId ON SafetyEvents(CameraId)");
+                        
+                        System.Diagnostics.Debug.WriteLine("SafetyEvents table successfully recreated with new structure");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("SafetyEvents table structure is up to date");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("SafetyEvents table does not exist, will be created by EnsureCreated()");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error checking/recreating SafetyEvents table: {ex.Message}");
+                // 실패해도 계속 진행 (EnsureCreated가 기본 테이블 생성)
             }
         }
     }

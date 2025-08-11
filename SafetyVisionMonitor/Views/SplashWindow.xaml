@@ -23,7 +23,7 @@
             <StackPanel Grid.Row="0" 
                        VerticalAlignment="Center" 
                        HorizontalAlignment="Center">
-                <TextBlock Text="Safety Vision Monitor" 
+                <TextBlock Text="Safety AI Monitor" 
                          FontSize="32" 
                          FontWeight="Bold" 
                          Foreground="White"/>

@@ -36,23 +36,38 @@ namespace SafetyVisionMonitor.Services.Handlers
                     return;
                 }
 
-                // 이미지 캡처
-                var imagePath = await CaptureImageAsync(cameraId, currentFrame, violation);
+                // 이미지 캡처와 동영상 녹화를 동시에 처리
+                var captureTask = CaptureImageAsync(cameraId, currentFrame, violation);
+                Task<string?> videoTask = null;
+
+                // 위험구역인 경우 동영상 녹화도 시작
+                if (violation.ViolationType == ViolationType.DangerZoneEntry)
+                {
+                    videoTask = StartVideoRecordingAsync(cameraId, violation);
+                }
+
+                // 모든 미디어 캡처 작업 완료 대기
+                var imagePath = await captureTask;
+                string? videoPath = null;
+                
+                if (videoTask != null)
+                {
+                    videoPath = await videoTask;
+                }
+
+                // 파일 경로 업데이트 (완전히 완료된 후)
                 if (!string.IsNullOrEmpty(imagePath))
                 {
                     context.SetProperty("CapturedImagePath", imagePath);
                     context.SafetyEvent.ImagePath = imagePath;
+                    System.Diagnostics.Debug.WriteLine($"MediaCaptureHandler: Image captured and path set: {imagePath}");
                 }
 
-                // 동영상 녹화 시작 (위험구역인 경우만)
-                if (violation.ViolationType == ViolationType.DangerZoneEntry)
+                if (!string.IsNullOrEmpty(videoPath))
                 {
-                    var videoPath = await StartVideoRecordingAsync(cameraId, violation);
-                    if (!string.IsNullOrEmpty(videoPath))
-                    {
-                        context.SetProperty("RecordedVideoPath", videoPath);
-                        context.SafetyEvent.VideoClipPath = videoPath;
-                    }
+                    context.SetProperty("RecordedVideoPath", videoPath);
+                    context.SafetyEvent.VideoClipPath = videoPath;
+                    System.Diagnostics.Debug.WriteLine($"MediaCaptureHandler: Video recording started and path set: {videoPath}");
                 }
 
                 // 저장소 용량 관리 (비동기로 실행)
