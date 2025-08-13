@@ -1,15 +1,16 @@
 ﻿<Window x:Class="SafetyVisionMonitor.Views.SplashWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Safety Vision Monitor" 
-        Height="300" Width="500"
-        WindowStartupLocation="CenterScreen"
-        WindowStyle="None"
-        xmlns:syncfusionskin="clr-namespace:Syncfusion.SfSkinManager;assembly=Syncfusion.SfSkinManager.WPF"
-        syncfusionskin:SfSkinManager.Theme="{syncfusionskin:SkinManagerExtension ThemeName=FluentDark, FluentHoverEffectMode=Border}"
-        ResizeMode="NoResize"
-        Topmost="True"
-        Background="#1A1A1A">
+                             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                             Title="Safety Vision Monitor" 
+                             Height="300" Width="500"
+                             WindowStartupLocation="CenterScreen"
+                             WindowStyle="None"
+                             xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
+                             xmlns:syncfusionskin="clr-namespace:Syncfusion.SfSkinManager;assembly=Syncfusion.SfSkinManager.WPF"
+                             syncfusionskin:SfSkinManager.Theme="{syncfusion:SkinManagerExtension ThemeName=FluentDark, FluentHoverEffectMode=Border}"
+                             ResizeMode="NoResize"
+                             Topmost="True"
+                             Background="#1A1A1A">
     
     <Border BorderBrush="#007ACC" BorderThickness="2">
         <Grid>

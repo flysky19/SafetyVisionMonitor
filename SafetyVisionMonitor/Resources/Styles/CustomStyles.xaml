@@ -254,4 +254,38 @@
         </Setter>
     </Style>
     
+    <!-- 커스텀 윈도우 스타일 -->
+    <Style x:Key="CustomWindowStyle" TargetType="Window">
+        <Setter Property="Background" Value="{StaticResource PrimaryBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="WindowStyle" Value="SingleBorderWindow"/>
+        <Setter Property="ResizeMode" Value="CanResize"/>
+        <Setter Property="UseLayoutRounding" Value="True"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="FontFamily" Value="Segoe UI"/>
+        <Setter Property="FontSize" Value="14"/>
+    </Style>
+    
+    <!-- Syncfusion ChromelessWindow 스타일 -->
+    <Style x:Key="ChromelessWindowStyle" TargetType="{x:Type syncfusion:ChromelessWindow}" xmlns:syncfusion="http://schemas.syncfusion.com/wpf">
+        <Setter Property="Background" Value="{StaticResource PrimaryBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="UseLayoutRounding" Value="True"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="FontFamily" Value="Segoe UI"/>
+        <Setter Property="FontSize" Value="14"/>
+    </Style>
+    
+    <!-- 일반 Window 스타일 -->
+    <Style x:Key="StandardWindowStyle" TargetType="Window">
+        <Setter Property="Background" Value="{StaticResource PrimaryBackgroundBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="WindowStyle" Value="SingleBorderWindow"/>
+        <Setter Property="ResizeMode" Value="CanResize"/>
+        <Setter Property="UseLayoutRounding" Value="True"/>
+        <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+        <Setter Property="FontFamily" Value="Segoe UI"/>
+        <Setter Property="FontSize" Value="14"/>
+    </Style>
+    
 </ResourceDictionary>

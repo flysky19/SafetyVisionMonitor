@@ -18,7 +18,7 @@ namespace SafetyVisionMonitor.Services.Handlers
             try
             {
                 var safetyEvent = context.SafetyEvent;
-                var violation = context.Violation;
+                var violation = context.Violation; 
 
                 // SafetyEvent 객체 완성
                 CompleteEventData(safetyEvent, violation, context);

@@ -93,9 +93,13 @@ namespace SafetyVisionMonitor.ViewModels
                             MaxDisappearFrames = 30,
                             IouThreshold = 0.3f,
                             SimilarityThreshold = 0.7f,
+                            EnableReIdentification = true,
+                            EnableMultiCameraTracking = true,
                             TrackHistoryLength = 50,
                             PathDisplayLength = 20,
-                            TrackingMethod = "SORT"
+                            TrackingMethod = "SORT",
+                            AutoSaveTracking = true,
+                            AutoSaveInterval = 60
                         };
                         
                         await trackingService.UpdateTrackingConfigurationAsync(currentConfig);
@@ -130,9 +134,13 @@ namespace SafetyVisionMonitor.ViewModels
                             MaxDisappearFrames = 30,
                             IouThreshold = 0.3f,
                             SimilarityThreshold = 0.7f,
+                            EnableReIdentification = true,
+                            EnableMultiCameraTracking = true,
                             TrackHistoryLength = 50,
                             PathDisplayLength = 20,
-                            TrackingMethod = "SORT"
+                            TrackingMethod = "SORT",
+                            AutoSaveTracking = true,
+                            AutoSaveInterval = 60
                         };
                         
                         await trackingService.UpdateTrackingConfigurationAsync(currentConfig);
@@ -1540,7 +1548,7 @@ namespace SafetyVisionMonitor.ViewModels
                             _ => "불명"
                         };
                         
-                        var idText = $"#{person.TrackingId} ({locationText})";
+                        var idText = $"#{person.TrackingId}";
                         var textPos = new Point(centerPoint.X + 15, centerPoint.Y - 10);
                         
                         // 배경 색상 (위치에 따라)

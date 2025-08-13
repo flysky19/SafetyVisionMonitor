@@ -505,6 +505,14 @@ namespace SafetyVisionMonitor.Services
             }).ToList();
         }
         
+        /// <summary>
+        /// 카메라 목록 조회 (LoadCameraConfigsAsync와 동일한 기능)
+        /// </summary>
+        public async Task<List<Camera>> GetCamerasAsync()
+        {
+            return await LoadCameraConfigsAsync();
+        }
+        
         // 통계 데이터 조회
         public async Task<Dictionary<string, int>> GetEventStatisticsAsync(DateTime startDate, DateTime endDate)
         {

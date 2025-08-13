@@ -1,4 +1,5 @@
 ﻿using System.Windows;
+using Syncfusion.Windows.Shared;
 
 namespace SafetyVisionMonitor.Views
 {

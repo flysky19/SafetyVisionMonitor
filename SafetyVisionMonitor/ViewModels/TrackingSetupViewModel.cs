@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.Input;
 using SafetyVisionMonitor.ViewModels.Base;
 using SafetyVisionMonitor.Services;
 using SafetyVisionMonitor.Database;
+using SafetyVisionMonitor.Models;
 using Microsoft.Win32;
 
 namespace SafetyVisionMonitor.ViewModels
@@ -74,7 +75,10 @@ namespace SafetyVisionMonitor.ViewModels
                 "ByteTrack", 
                 "StrongSORT" 
             };
-            
+        }
+        
+        public void OnLoaded()
+        {
             LoadSettingsFromDatabase();
         }
         
@@ -107,14 +111,36 @@ namespace SafetyVisionMonitor.ViewModels
                 TrackingZones.Clear();
                 foreach (var zone in zones)
                 {
-                    TrackingZones.Add(new TrackingZone
+                    var trackingZone = new TrackingZone
                     {
                         Id = zone.ZoneId,
                         Name = zone.Name,
                         IsEntryZone = zone.IsEntryZone,
                         IsExitZone = zone.IsExitZone,
-                        CountingEnabled = zone.CountingEnabled
-                    });
+                        CountingEnabled = zone.CountingEnabled,
+                        CameraId = zone.CameraId
+                    };
+                    
+                    // 좌표 데이터 복원
+                    if (!string.IsNullOrEmpty(zone.PolygonJson) && zone.PolygonJson != "{}")
+                    {
+                        try
+                        {
+                            var points = JsonSerializer.Deserialize<List<System.Drawing.PointF>>(zone.PolygonJson);
+                            if (points != null)
+                            {
+                                trackingZone.PolygonPoints = points;
+                            }
+                        }
+                        catch
+                        {
+                            // 좌표 파싱 실패 시 기본값 사용
+                        }
+                    }
+                    
+                    trackingZone.CreatedTime = zone.CreatedTime;
+                    
+                    TrackingZones.Add(trackingZone);
                 }
 
                 StatusMessage = "설정을 불러왔습니다.";
@@ -163,9 +189,11 @@ namespace SafetyVisionMonitor.ViewModels
                     IsEntryZone = z.IsEntryZone,
                     IsExitZone = z.IsExitZone,
                     CountingEnabled = z.CountingEnabled,
-                    PolygonJson = "{}", // TODO: 실제 좌표 데이터
-                    CameraId = "default",
-                    CreatedTime = DateTime.Now
+                    PolygonJson = z.PolygonPoints?.Count > 0 
+                        ? JsonSerializer.Serialize(z.PolygonPoints) 
+                        : "[]",
+                    CameraId = z.CameraId,
+                    CreatedTime = z.CreatedTime
                 }).ToList();
                 
                 await App.DatabaseService.SaveTrackingZonesAsync(zoneConfigs);
@@ -277,7 +305,9 @@ namespace SafetyVisionMonitor.ViewModels
                     ShowTrackingId = ShowTrackingId,
                     ShowTrackingPath = ShowTrackingPath,
                     PathDisplayLength = PathDisplayLength,
-                    TrackingMethod = SelectedTrackingMethod
+                    TrackingMethod = SelectedTrackingMethod,
+                    AutoSaveTracking = AutoSaveTracking,
+                    AutoSaveInterval = AutoSaveInterval
                 };
                 
                 // 트래킹 서비스 인스턴스 생성 테스트
@@ -388,24 +418,5 @@ namespace SafetyVisionMonitor.ViewModels
                 IsLoading = false;
             }
         }
-    }
-    
-    // 트래킹 구역 모델
-    public partial class TrackingZone : ObservableObject
-    {
-        [ObservableProperty]
-        private string id = string.Empty;
-        
-        [ObservableProperty]
-        private string name = string.Empty;
-        
-        [ObservableProperty]
-        private bool isEntryZone;
-        
-        [ObservableProperty]
-        private bool isExitZone;
-        
-        [ObservableProperty]
-        private bool countingEnabled;
     }
 }

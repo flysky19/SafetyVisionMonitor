@@ -41,38 +41,18 @@ namespace SafetyVisionMonitor.ViewModels
         {
             Title = "AI 모델 관리";
             Models = new ObservableCollection<AIModel>();
-            
-            // 샘플 모델 추가 (실제로는 DB에서 로드)
-            LoadSavedModels();
         }
         
         public override async void OnLoaded()
         {
             base.OnLoaded();
             
-            // AppData에서 AI 모델 정보 로드
-            Models.Clear();
-            foreach (var config in App.AppData.AIModels)
-            {
-                Models.Add(new AIModel
-                {
-                    Id = config.Id.ToString(),
-                    Name = config.ModelName,
-                    Version = config.ModelVersion,
-                    ModelPath = config.ModelPath,
-                    Type = Enum.Parse<ModelType>(config.ModelType),
-                    Confidence = config.DefaultConfidence,
-                    IsActive = config.IsActive,
-                    UploadedDate = config.UploadedTime
-                });
-            }
-    
-            SelectedModel = Models.FirstOrDefault(m => m.IsActive);
-            
+            // 데이터베이스에서 AI 모델 정보 로드
+            await LoadSavedModels();
         }
         
         
-        private async void LoadSavedModels()
+        private async Task LoadSavedModels()
         {
             try
             {
@@ -114,125 +94,7 @@ namespace SafetyVisionMonitor.ViewModels
                         Models.Add(model);
                     }
                 }
-                else
-                {
-                    // 데이터베이스에 모델이 없으면 YOLOv8Engine의 기본 모델 사용
-                    var defaultModelPath = YOLOv8Engine.GetDefaultModelPath();
-                    var defaultModelName = "YOLOv8x";
-                    
-                    ModelStatus modelStatus = ModelStatus.Ready;
-                    string description = "고성능 객체 감지 모델";
-                    long fileSize = 130000000; // 약 130MB (YOLOv8x 예상 크기)
-                    
-                    // 기본 모델이 없으면 바로 다운로드
-                    if (!YOLOv8Engine.IsDefaultModelAvailable())
-                    {
-                        modelStatus = ModelStatus.Loading;
-                        description = "모델 다운로드 중...";
-                        fileSize = 0;
-                        
-                        try
-                        {
-                            StatusMessage = "기본 YOLO 모델을 다운로드하는 중입니다...";
-                            
-                            // YOLOv8Engine으로 다운로드 (진행률 이벤트 구독)
-                            var engine = new YOLOv8Engine();
-                            
-                            void OnDownloadProgress(object? sender, ModelDownloadProgressEventArgs e)
-                            {
-                                App.Current.Dispatcher.Invoke(() =>
-                                {
-                                    StatusMessage = $"모델 다운로드 중... {e.ProgressPercentage:F1}% ({e.DownloadedBytes / 1024 / 1024}MB / {e.TotalBytes / 1024 / 1024}MB)";
-                                });
-                            }
-                            
-                            engine.DownloadProgressChanged += OnDownloadProgress;
-                            
-                            try
-                            {
-                                // 기본 모델 다운로드 (파일이 없으면 자동 다운로드됨)
-                                var success = await engine.InitializeAsync();
-                                
-                                if (success)
-                                {
-                                    modelStatus = ModelStatus.Ready;
-                                    description = "모델 다운로드 완료";
-                                    
-                                    // 실제 파일 크기 확인
-                                    try
-                                    {
-                                        var fileInfo = new FileInfo(defaultModelPath);
-                                        fileSize = fileInfo.Length;
-                                    }
-                                    catch { }
-                                    
-                                    StatusMessage = "기본 YOLO 모델 다운로드가 완료되었습니다.";
-                                }
-                                else
-                                {
-                                    modelStatus = ModelStatus.Error;
-                                    description = "모델 다운로드 실패";
-                                    StatusMessage = "기본 YOLO 모델 다운로드에 실패했습니다.";
-                                }
-                            }
-                            finally
-                            {
-                                engine.DownloadProgressChanged -= OnDownloadProgress;
-                                engine.Dispose();
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Model download error: {ex.Message}");
-                            modelStatus = ModelStatus.Error;
-                            description = $"다운로드 오류: {ex.Message}";
-                            StatusMessage = "모델 다운로드 중 오류가 발생했습니다.";
-                        }
-                    }
-                    else
-                    {
-                        // 파일이 이미 존재하면 크기 확인
-                        try
-                        {
-                            var fileInfo = new FileInfo(defaultModelPath);
-                            fileSize = fileInfo.Length;
-                            description = "기본 객체 감지 모델 (다운로드 완료)";
-                        }
-                        catch { }
-                    }
-                    
-                    var sampleModel = new AIModel
-                    {
-                        Name = $"{defaultModelName} - 기본 모델",
-                        Version = "8.2.0",
-                        Type = ModelType.YOLOv8,
-                        ModelPath = defaultModelPath,
-                        FileSize = fileSize,
-                        Confidence = 0.7,
-                        IsActive = true,
-                        Status = modelStatus,
-                        UploadedDate = DateTime.Now,
-                        Description = description
-                    };
-                    
-                    Models.Add(sampleModel);
-                    
-                    // 샘플 모델을 데이터베이스에 저장
-                    var modelConfig = new Database.AIModelConfig
-                    {
-                        ModelName = sampleModel.Name,
-                        ModelVersion = sampleModel.Version,
-                        ModelType = sampleModel.Type.ToString(),
-                        ModelPath = sampleModel.ModelPath,
-                        DefaultConfidence = sampleModel.Confidence,
-                        IsActive = sampleModel.IsActive,
-                        FileSize = sampleModel.FileSize,
-                        UploadedTime = sampleModel.UploadedDate,
-                        Description = sampleModel.Description
-                    };
-                    
-                    await App.DatabaseService.SaveAIModelConfigsAsync(new List<Database.AIModelConfig> { modelConfig });
-                }
+                // 데이터베이스에 모델이 없으면 안내 메시지만 표시
                 
                 SelectedModel = Models.FirstOrDefault(m => m.IsActive);
                 
@@ -242,20 +104,8 @@ namespace SafetyVisionMonitor.ViewModels
             {
                 System.Diagnostics.Debug.WriteLine($"LoadSavedModels Error: {ex.Message}");
 
-                // 오류 발생 시 기본 샘플 데이터 추가
-                Models.Add(new AIModel
-                {
-                    Name = "YOLOv8n - 안전모 검출",
-                    Version = "1.0.0",
-                    Type = ModelType.YOLOv8,
-                    ModelPath = "Models/yolov8n_helmet.onnx",
-                    FileSize = 6291456, // 6MB
-                    Confidence = 0.7,
-                    IsActive = true,
-                    Status = ModelStatus.Ready
-                });
-                
-                SelectedModel = Models.FirstOrDefault(m => m.IsActive);
+                // 오류 발생 시 안내 메시지
+                StatusMessage = "AI 모델을 불러오는 중 오류가 발생했습니다. 모델을 추가해 주세요.";
             }
         }
         
