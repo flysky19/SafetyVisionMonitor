@@ -642,16 +642,12 @@ namespace SafetyVisionMonitor.Shared.Services
                 zone.CalibrationFrameWidth = config.CalibrationFrameWidth;
                 zone.CalibrationFrameHeight = config.CalibrationFrameHeight;
                 
-                // 마지막에 IsEnabled 설정
-                System.Diagnostics.Debug.WriteLine($"DatabaseService: About to set IsEnabled={config.IsEnabled} for zone {config.Name}");
-                
-                // 임시: 모든 구역을 활성화 상태로 강제 설정 (디버깅용)
-                // zone.IsEnabled = true; // 이 줄의 주석을 해제하면 모든 구역이 활성화됩니다
+                // IsEnabled를 먼저 설정 (로딩 중이므로 이벤트 발생 안함)
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: About to set IsEnabled={config.IsEnabled} for zone {config.Name} (IsLoading=true)");
                 
                 zone.IsEnabled = config.IsEnabled;
                 
-                System.Diagnostics.Debug.WriteLine($"DatabaseService: Loading zone {config.Name}, DB IsEnabled={config.IsEnabled}");
-                System.Diagnostics.Debug.WriteLine($"DatabaseService: After zone creation, Zone IsEnabled={zone.IsEnabled}");
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Zone {config.Name} properties set - DB IsEnabled={config.IsEnabled}, Zone IsEnabled={zone.IsEnabled}");
                 
                 // JSON에서 좌표 복원
                 if (!string.IsNullOrEmpty(config.VerticesJson))
@@ -686,9 +682,10 @@ namespace SafetyVisionMonitor.Shared.Services
                     }
                 }
                 
-                // 로딩 완료, 이제 자동 저장 활성화
+                // 로딩 완료, 이제 자동 저장 활성화 (하지만 즉시 이벤트 발생하지 않도록 주의)
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Zone {config.Name} loading completed, setting IsLoading=false");
                 zone.IsLoading = false;
-                System.Diagnostics.Debug.WriteLine($"DatabaseService: Zone {config.Name} loading completed, IsLoading=false");
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Zone {config.Name} fully loaded and ready");
                 
                 zones.Add(zone);
             }

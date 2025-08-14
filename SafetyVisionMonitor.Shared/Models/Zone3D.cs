@@ -12,6 +12,9 @@ namespace SafetyVisionMonitor.Shared.Models
         // 데이터베이스 로딩 중에는 자동 저장하지 않도록 하는 플래그
         public bool IsLoading { get; set; } = false;
         
+        // 이벤트 억제 플래그 (무한 루프 방지)
+        private bool _suppressEvents = false;
+        
         // 의존성 주입된 서비스들
         public static IZoneDatabaseService? DatabaseService { get; set; }
         public static IZoneNotificationService? NotificationService { get; set; }
@@ -70,10 +73,19 @@ namespace SafetyVisionMonitor.Shared.Models
         // IsEnabled 속성 변경 감지
         partial void OnIsEnabledChanged(bool value)
         {
-            System.Diagnostics.Debug.WriteLine($"Zone3D {Name}: IsEnabled changed to {value}, IsLoading={IsLoading}");
+            System.Diagnostics.Debug.WriteLine($"Zone3D {Name}: IsEnabled changed to {value}, IsLoading={IsLoading}, SuppressEvents={_suppressEvents}");
             
-            // 로딩 중이 아닐 때만 자동 저장
-            if (!IsLoading)
+            // 로딩 중이거나 이벤트 억제 중일 때는 자동 저장하지 않음 (무한 루프 방지)
+            if (IsLoading || _suppressEvents)
+            {
+                System.Diagnostics.Debug.WriteLine($"Zone3D {Name}: Event suppressed - IsLoading={IsLoading}, SuppressEvents={_suppressEvents}");
+                return;
+            }
+            
+            // 이벤트 억제 플래그 설정
+            _suppressEvents = true;
+            
+            try
             {
                 // 변경사항을 즉시 데이터베이스에 저장하고 다른 ViewModel들에 알림
                 _ = Task.Run(async () =>
@@ -95,7 +107,18 @@ namespace SafetyVisionMonitor.Shared.Models
                     {
                         System.Diagnostics.Debug.WriteLine($"Failed to auto-save zone toggle: {ex.Message}");
                     }
+                    finally
+                    {
+                        // 작업 완료 후 이벤트 억제 해제
+                        _suppressEvents = false;
+                        System.Diagnostics.Debug.WriteLine($"Zone3D {Name}: Event suppression released");
+                    }
                 });
+            }
+            catch
+            {
+                // 예외 발생 시에도 이벤트 억제 해제
+                _suppressEvents = false;
             }
         }
     }

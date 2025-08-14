@@ -487,6 +487,7 @@ namespace SafetyVisionMonitor.Services
                     Confidence = confidence,
                     ClassId = classId,
                     ClassName = className,
+                    Label = ExtractLabelName(className) ?? "",
                     Timestamp = DateTime.Now
                 };
             }
@@ -499,6 +500,7 @@ namespace SafetyVisionMonitor.Services
                     Confidence = 0,
                     ClassId = 0,
                     ClassName = "Unknown",
+                    Label = "unknown",
                     Timestamp = DateTime.Now
                 };
             }
@@ -813,6 +815,62 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         public static bool IsDefaultModelAvailable() => File.Exists(DefaultModelPath);
         
+        /// <summary>
+        /// Label 이름 추출 (LabelModel {Index=0,Name=person} 형태에서 Name 추출)
+        /// </summary>
+        private static string? ExtractLabelName(string? className)
+        {
+            if (string.IsNullOrEmpty(className))
+                return null;
+                
+            System.Diagnostics.Debug.WriteLine($"YOLOv8Engine: ExtractLabelName input: '{className}'");
+                
+            // "LabelModel { Index = 0, Name = person }" 형태 파싱 (공백 포함)
+            if (className.Contains("LabelModel") && className.Contains("Name"))
+            {
+                // "Name = " 또는 "Name=" 패턴 찾기
+                var namePattern1 = "Name = ";
+                var namePattern2 = "Name=";
+                
+                int nameStart = -1;
+                if (className.Contains(namePattern1))
+                {
+                    nameStart = className.IndexOf(namePattern1) + namePattern1.Length;
+                }
+                else if (className.Contains(namePattern2))
+                {
+                    nameStart = className.IndexOf(namePattern2) + namePattern2.Length;
+                }
+                
+                if (nameStart > 0)
+                {
+                    // "}" 또는 문자열 끝까지 찾기
+                    var nameEnd = className.IndexOf("}", nameStart);
+                    if (nameEnd == -1) nameEnd = className.Length;
+                    
+                    if (nameEnd > nameStart)
+                    {
+                        var name = className.Substring(nameStart, nameEnd - nameStart).Trim();
+                        var result = name.ToLower();
+                        System.Diagnostics.Debug.WriteLine($"YOLOv8Engine: ExtractLabelName parsed: '{result}'");
+                        return result;
+                    }
+                }
+            }
+            
+            // 일반적인 문자열인 경우 - 단순히 "person" 등의 값인 경우
+            if (!className.Contains("{") && !className.Contains("}"))
+            {
+                var simple = className.ToLower().Trim();
+                System.Diagnostics.Debug.WriteLine($"YOLOv8Engine: ExtractLabelName simple: '{simple}'");
+                return simple;
+            }
+            
+            // 파싱 실패 시 기본값
+            System.Diagnostics.Debug.WriteLine($"YOLOv8Engine: ExtractLabelName failed to parse, returning 'unknown'");
+            return "unknown";
+        }
+
         public void Dispose()
         {
             if (_disposed) return;

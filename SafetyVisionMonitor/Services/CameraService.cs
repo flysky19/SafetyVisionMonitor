@@ -17,9 +17,11 @@ namespace SafetyVisionMonitor.Services
         private readonly int _maxCameras;
         private readonly ConcurrentDictionary<string, List<DetectionResult>> _latestDetections = new();
         private readonly ConcurrentDictionary<string, Mat> _latestFrames = new(); // 최신 프레임 캐시
+        private readonly ConcurrentDictionary<string, Mat> _processedFrames = new(); // 개인정보 보호 처리된 프레임 캐시
         public event EventHandler<CameraFrameEventArgs>? FrameReceived;
         public event EventHandler<CameraFrameEventArgs>? FrameReceivedForAI; // AI용 원본 프레임
         public event EventHandler<CameraFrameEventArgs>? FrameReceivedForUI; // UI용 저화질 프레임
+        public event EventHandler<CameraFrameEventArgs>? ProcessedFrameReceived; // 개인정보 보호 처리된 프레임
         public event EventHandler<CameraConnectionEventArgs>? ConnectionChanged;
         
         public CameraService()
@@ -239,10 +241,63 @@ namespace SafetyVisionMonitor.Services
                     // UI용은 해상도 축소 (1/4 크기)
                     var uiFrame = CreateLowResolutionFrame(originalFrame.Frame);
                     
-                    // FrameRenderer를 사용하여 검출 결과와 추적 정보 렌더링
-                    if (detections.Count > 0 || trackedPersons?.Count > 0)
+                    // 새로운 기능 기반 렌더링 파이프라인 사용
+                    try
                     {
-                        RenderFrameWithTracking(uiFrame, detections, trackedPersons, trackingConfig);
+                        // 축소된 프레임에 맞게 검출 결과 좌표 조정
+                        var scaledDetections = detections.Select(d => new DetectionResult
+                        {
+                            Label = d.Label,
+                            ClassName = d.ClassName,
+                            Confidence = d.Confidence,
+                            TrackingId = d.TrackingId,
+                            CameraId = d.CameraId,
+                            ClassId = d.ClassId,
+                            Timestamp = d.Timestamp,
+                            Location = d.Location,
+                            BoundingBox = new System.Drawing.RectangleF(
+                                d.BoundingBox.X * 0.5f,
+                                d.BoundingBox.Y * 0.5f,
+                                d.BoundingBox.Width * 0.5f,
+                                d.BoundingBox.Height * 0.5f
+                            )
+                        }).ToArray();
+
+                        // 프레임 처리 컨텍스트 생성
+                        var context = new Features.FrameProcessingContext
+                        {
+                            CameraId = originalFrame.CameraId,
+                            Detections = scaledDetections,
+                            TrackedPersons = trackedPersons,
+                            TrackingConfig = trackingConfig,
+                            Scale = 0.5f // UI는 1/2 스케일
+                        };
+
+                        // 오버레이 렌더링 파이프라인 적용
+                        if (App.OverlayPipeline != null)
+                        {
+                            uiFrame = App.OverlayPipeline.ProcessFrame(uiFrame, context);
+                            System.Diagnostics.Debug.WriteLine($"CameraService: Applied overlay pipeline for {originalFrame.CameraId}");
+                        }
+                        else
+                        {
+                            // 폴백: 기존 방식 사용
+                            System.Diagnostics.Debug.WriteLine($"CameraService: Using fallback rendering for {originalFrame.CameraId}");
+                            if (detections.Count > 0 || trackedPersons?.Count > 0)
+                            {
+                                RenderFrameWithTracking(uiFrame, detections, trackedPersons, trackingConfig);
+                            }
+                        }
+                    }
+                    catch (Exception pipelineEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"CameraService: Pipeline error for {originalFrame.CameraId}: {pipelineEx.Message}");
+                        
+                        // 오류 시 기존 방식으로 폴백
+                        if (detections.Count > 0 || trackedPersons?.Count > 0)
+                        {
+                            RenderFrameWithTracking(uiFrame, detections, trackedPersons, trackingConfig);
+                        }
                     }
                     
                     try
@@ -318,7 +373,7 @@ namespace SafetyVisionMonitor.Services
             foreach (var detection in detections)
             {
                 // 디버그 모드가 아니면 사람만 표시
-                if (!showAllDetections && detection.ClassName.ToLower() != "person")
+                if (!showAllDetections && detection.Label != "person")
                     continue;
                 
                 // 바운딩 박스 좌표 스케일 조정
@@ -330,7 +385,7 @@ namespace SafetyVisionMonitor.Services
                 );
 
                 // 색상 결정 (사람은 빨간색, 다른 객체는 다양한 색상)
-                var color = GetDetectionColor(detection.ClassName);
+                var color = GetDetectionColor(detection.Label);
 
                 // 박스 그리기 (디버그 모드에서는 더 두껍게)
                 var thickness = showDetailedInfo ? 3 : 2;
@@ -338,10 +393,10 @@ namespace SafetyVisionMonitor.Services
 
                 // 라벨 텍스트 (트래킹 ID 설정 반영)
                 var label = showDetailedInfo 
-                    ? $"{detection.ClassName} {detection.Confidence:P1} [{detection.ClassId}]"
+                    ? $"{detection.DisplayName} {detection.Confidence:P1} [{detection.ClassId}]"
                     : detection.TrackingId.HasValue && (trackingConfig?.ShowTrackingId ?? true)
-                        ? $"{detection.ClassName} ID:{detection.TrackingId} ({detection.Confidence:P0})"
-                        : $"{detection.ClassName} ({detection.Confidence:P0})";
+                        ? $"{detection.DisplayName} ID:{detection.TrackingId} ({detection.Confidence:P0})"
+                        : $"{detection.DisplayName} ({detection.Confidence:P0})";
                 
                 // 텍스트 크기 계산
                 var fontSize = showDetailedInfo ? 0.6 : 0.5;
@@ -465,9 +520,9 @@ namespace SafetyVisionMonitor.Services
             }
         }
         
-        private Scalar GetDetectionColor(string className)
+        private Scalar GetDetectionColor(string label)
         {
-            return className.ToLower() switch
+            return label switch
             {
                 "person" => new Scalar(0, 0, 255),      // 빨간색
                 "car" => new Scalar(255, 0, 0),         // 파란색
@@ -491,6 +546,81 @@ namespace SafetyVisionMonitor.Services
                 : new List<DetectionResult>();
         }
         
+        /// <summary>
+        /// 개인정보 보호가 적용된 프레임 업데이트 (MonitoringService에서 호출)
+        /// </summary>
+        public void UpdateProcessedFrame(string cameraId, Mat processedFrame)
+        {
+            try
+            {
+                // 기존 처리된 프레임이 있으면 해제
+                if (_processedFrames.TryGetValue(cameraId, out var oldProcessedFrame))
+                {
+                    oldProcessedFrame?.Dispose();
+                }
+                
+                // 새 처리된 프레임으로 교체 (복사본 저장)
+                _processedFrames[cameraId] = processedFrame.Clone();
+                
+                // 처리된 프레임 이벤트 발생
+                ProcessedFrameReceived?.Invoke(this, new CameraFrameEventArgs(cameraId, processedFrame.Clone()));
+                
+                System.Diagnostics.Debug.WriteLine($"CameraService: Updated processed frame for camera {cameraId}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: Processed frame update error for {cameraId} - {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 특정 카메라의 개인정보 보호가 적용된 최신 프레임 가져오기
+        /// </summary>
+        public Mat? GetLatestProcessedFrame(string cameraId)
+        {
+            try
+            {
+                if (_processedFrames.TryGetValue(cameraId, out var frame) && frame != null && !frame.Empty())
+                {
+                    return frame.Clone(); // 복사본 반환
+                }
+                
+                // 처리된 프레임이 없으면 원본 프레임 반환
+                return GetLatestFrame(cameraId);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: Processed frame retrieval error for {cameraId} - {ex.Message}");
+                return GetLatestFrame(cameraId);
+            }
+        }
+        
+        /// <summary>
+        /// 모든 연결된 카메라의 개인정보 보호가 적용된 최신 프레임 가져오기
+        /// </summary>
+        public Dictionary<string, Mat> GetAllLatestProcessedFrames()
+        {
+            var result = new Dictionary<string, Mat>();
+            
+            try
+            {
+                foreach (var connection in _connections.Keys)
+                {
+                    var processedFrame = GetLatestProcessedFrame(connection);
+                    if (processedFrame != null)
+                    {
+                        result[connection] = processedFrame;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: Batch processed frame retrieval error - {ex.Message}");
+            }
+            
+            return result;
+        }
+
         public void Dispose()
         {
             // AI 이벤트 구독 해제
@@ -513,6 +643,13 @@ namespace SafetyVisionMonitor.Services
                 frame?.Dispose();
             }
             _latestFrames.Clear();
+            
+            // 처리된 프레임 캐시 정리
+            foreach (var frame in _processedFrames.Values)
+            {
+                frame?.Dispose();
+            }
+            _processedFrames.Clear();
         }
         
         /// <summary>
@@ -605,6 +742,13 @@ namespace SafetyVisionMonitor.Services
         private void ConfigureCamera()
         {
             if (_capture == null || !_capture.IsOpened()) return;
+            
+            // YouTube 영상의 경우 카메라 설정을 스킵
+            if (Camera.Type == CameraType.YouTube)
+            {
+                System.Diagnostics.Debug.WriteLine("YouTube 영상 - 카메라 설정 스킵");
+                return;
+            }
     
             try
             {
@@ -778,83 +922,120 @@ namespace SafetyVisionMonitor.Services
         
         public async Task<bool> ConnectAsync()
         {
-            return await Task.Run(() =>
+            try
             {
-                try
+                string? connectionString = Camera.ConnectionString;
+                
+                // YouTube 타입인 경우 lock 밖에서 스트림 URL 추출
+                if (Camera.Type == CameraType.YouTube)
                 {
-                    lock (_captureLock)
+                    System.Diagnostics.Debug.WriteLine($"유튜브 영상 연결 시도: {Camera.ConnectionString}");
+                    
+                    var streamUrl = await YouTubeVideoService.GetStreamUrlAsync(Camera.ConnectionString, VideoQuality.Best);
+                    if (string.IsNullOrEmpty(streamUrl))
                     {
-                        if (_disposed) return false;
-                        
-                        // USB 카메라인 경우
-                        if (Camera.Type == CameraType.USB)
-                        {
-                            int cameraIndex = int.Parse(Camera.ConnectionString);
-                            
-                            // DirectShow 백엔드 사용 (Windows에서 안정적)
-                            _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.MSMF);
-                            
-                            if (!_capture.IsOpened())
-                            {
-                                _capture.Dispose();
-                                _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.ANY);
-                            }
-                            
-                            if (!_capture.IsOpened())
-                            {
-                                _capture.Dispose();
-                                _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.DSHOW);
-                            }
-                        }
-                        else
-                        {
-                            _capture = new VideoCapture(Camera.ConnectionString);
-                        }
-                        
-                        if (_capture?.IsOpened() != true)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Failed to open camera {Camera.Id}");
-                            _capture?.Dispose();
-                            _capture = null;
-                            return false;
-                        }
-                        
-                        // 카메라 정보 출력
-                        var backend = _capture.GetBackendName();
-                        System.Diagnostics.Debug.WriteLine($"Camera backend: {backend}");
-                        
-                        // 카메라 설정
-                        ConfigureCamera();
-                        
-                        // 워밍업 및 검증
-                        if (!VerifyCamera())
-                        {
-                            System.Diagnostics.Debug.WriteLine("Camera verification failed");
-                            _capture.Dispose();
-                            _capture = null;
-                            return false;
-                        }
-                        
-                        _isRunning = true;
+                        System.Diagnostics.Debug.WriteLine("유튜브 스트림 URL 추출 실패");
+                        return false;
                     }
                     
-                    // 스레드 시작
-                    _captureThread = new Thread(CaptureLoop) 
-                    { 
-                        IsBackground = true,
-                        Name = $"Camera_{Camera.Id}_Thread"
-                    };
-                    _captureThread.Start();
+                    System.Diagnostics.Debug.WriteLine($"스트림 URL 추출 성공");
+                    connectionString = streamUrl;
                     
-                    System.Diagnostics.Debug.WriteLine($"Camera {Camera.Id} connected successfully");
-                    return true;
+                    // 유튜브 영상 정보 가져와서 카메라 설정 업데이트
+                    var videoInfo = await YouTubeVideoService.GetVideoInfoAsync(Camera.ConnectionString);
+                    if (videoInfo != null)
+                    {
+                        Camera.Width = videoInfo.Width;
+                        Camera.Height = videoInfo.Height;
+                        Camera.Fps = videoInfo.Fps > 0 ? videoInfo.Fps : 30;
+                        System.Diagnostics.Debug.WriteLine($"유튜브 영상 정보: {videoInfo.Title} ({videoInfo.Width}x{videoInfo.Height} @ {videoInfo.Fps}fps)");
+                    }
                 }
-                catch (Exception ex)
+                
+                return await Task.Run(() =>
                 {
-                    System.Diagnostics.Debug.WriteLine($"Camera connection error: {ex.Message}");
-                    return false;
-                }
-            });
+                    try
+                    {
+                        lock (_captureLock)
+                        {
+                            if (_disposed) return false;
+                            
+                            // 카메라 타입에 따른 연결 처리
+                            if (Camera.Type == CameraType.USB)
+                            {
+                                int cameraIndex = int.Parse(Camera.ConnectionString);
+                                
+                                // DirectShow 백엔드 사용 (Windows에서 안정적)
+                                _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.MSMF);
+                                
+                                if (!_capture.IsOpened())
+                                {
+                                    _capture.Dispose();
+                                    _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.ANY);
+                                }
+                                
+                                if (!_capture.IsOpened())
+                                {
+                                    _capture.Dispose();
+                                    _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.DSHOW);
+                                }
+                            }
+                            else
+                            {
+                                // YouTube(변환된 스트림 URL), RTSP, File 등
+                                _capture = new VideoCapture(connectionString);
+                            }
+                            
+                            if (_capture?.IsOpened() != true)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"Failed to open camera {Camera.Id}");
+                                _capture?.Dispose();
+                                _capture = null;
+                                return false;
+                            }
+                            
+                            // 카메라 정보 출력
+                            var backend = _capture.GetBackendName();
+                            System.Diagnostics.Debug.WriteLine($"Camera backend: {backend}");
+                            
+                            // 카메라 설정
+                            ConfigureCamera();
+                            
+                            // 워밍업 및 검증
+                            if (!VerifyCamera())
+                            {
+                                System.Diagnostics.Debug.WriteLine("Camera verification failed");
+                                _capture.Dispose();
+                                _capture = null;
+                                return false;
+                            }
+                            
+                            _isRunning = true;
+                        }
+                        
+                        // 스레드 시작
+                        _captureThread = new Thread(CaptureLoop) 
+                        { 
+                            IsBackground = true,
+                            Name = $"Camera_{Camera.Id}_Thread"
+                        };
+                        _captureThread.Start();
+                        
+                        System.Diagnostics.Debug.WriteLine($"Camera {Camera.Id} connected successfully");
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Camera connection error: {ex.Message}");
+                        return false;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"YouTube connection error: {ex.Message}");
+                return false;
+            }
         }
 
         private bool VerifyCamera()

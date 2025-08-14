@@ -33,6 +33,10 @@ public partial class App
     // 백그라운드 추적 서비스 (MonitoringService를 통해 접근)
     public static BackgroundTrackingService TrackingService => MonitoringService.GetTrackingService();
 
+    // 새로운 기능 관리 시스템
+    public static Services.Features.FeatureManager FeatureManager { get; private set; } = null!;
+    public static Services.Features.OverlayRenderingPipeline OverlayPipeline { get; private set; } = null!;
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         ConfigureCudaEnvironment();
@@ -72,6 +76,11 @@ public partial class App
             CameraService = new CameraService();
 
             MonitoringService = new MonitoringService();
+
+            // 새로운 기능 관리 시스템 초기화
+            splash.UpdateStatus("기능 관리 시스템 초기화 중...");
+            FeatureManager = Services.Features.FeatureManager.Instance;
+            OverlayPipeline = new Services.Features.OverlayRenderingPipeline(FeatureManager);
 
             // 전역 데이터 로드
             splash.UpdateStatus("데이터 로드 중...");

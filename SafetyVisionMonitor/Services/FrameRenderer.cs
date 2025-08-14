@@ -199,7 +199,7 @@ namespace SafetyVisionMonitor.Services
                 );
 
                 // 색상 결정 (사람은 빨간색, 다른 객체는 녹색)
-                var color = detection.ClassName.ToLower() == "person" 
+                var color = detection.Label == "person" 
                     ? new Scalar(0, 0, 255) // 빨간색 (BGR)
                     : new Scalar(0, 255, 0); // 녹색
 
@@ -208,8 +208,8 @@ namespace SafetyVisionMonitor.Services
 
                 // 라벨 텍스트 (트래킹 ID 포함 - 설정에 따라)
                 var label = detection.TrackingId.HasValue && (config?.ShowTrackingId ?? true)
-                    ? $"{detection.ClassName} ID:{detection.TrackingId} ({detection.Confidence:P0})"
-                    : $"{detection.ClassName} ({detection.Confidence:P0})";
+                    ? $"{detection.DisplayName} ID:{detection.TrackingId} ({detection.Confidence:P0})"
+                    : $"{detection.DisplayName} ({detection.Confidence:P0})";
                 
                 // 텍스트 배경
                 var textSize = Cv2.GetTextSize(label, HersheyFonts.HersheySimplex, 0.5, 1, out var baseline);

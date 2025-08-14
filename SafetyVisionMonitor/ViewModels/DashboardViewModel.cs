@@ -667,7 +667,7 @@ namespace SafetyVisionMonitor.ViewModels
                         foreach (var detection in detections)
                         {
                             // 신뢰도 필터링 (디버그 모드에서는 낮은 신뢰도도 표시)
-                            if (ShowAllDetections || detection.ClassName.ToLower() == "person")
+                            if (ShowAllDetections || detection.Label == "person")
                             {
                                 allDetections.Add(detection);
                             }
@@ -686,7 +686,7 @@ namespace SafetyVisionMonitor.ViewModels
                     }
                     
                     // 검출된 사람 수 업데이트
-                    DetectedPersonCount = allDetections.Count(d => d.ClassName.ToLower() == "person");
+                    DetectedPersonCount = allDetections.Count(d => d.Label == "person");
                 }
             });
         }
@@ -909,13 +909,20 @@ namespace SafetyVisionMonitor.ViewModels
             {
                 System.Diagnostics.Debug.WriteLine($"Dashboard received zone update: {e.Zone.Name}, IsEnabled={e.IsEnabled}");
                 
+                // 무한 루프 방지: 로딩 중인 Zone은 무시
+                if (e.Zone.IsLoading)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Dashboard: Ignoring update for loading zone {e.Zone.Name}");
+                    return;
+                }
+                
                 // 해당 카메라의 구역을 찾아서 업데이트
                 var camera = Cameras.FirstOrDefault(c => c.CameraId == e.Zone.CameraId);
                 if (camera != null)
                 {
                     // 경고 구역 업데이트
                     var warningZone = camera.WarningZones.FirstOrDefault(z => z.ZoneId == e.ZoneId);
-                    if (warningZone != null)
+                    if (warningZone != null && warningZone.IsEnabled != e.IsEnabled)
                     {
                         warningZone.IsEnabled = e.IsEnabled;
                         warningZone.Opacity = e.IsEnabled ? e.Zone.Opacity : 0.05;
@@ -925,7 +932,7 @@ namespace SafetyVisionMonitor.ViewModels
                     
                     // 위험 구역 업데이트
                     var dangerZone = camera.DangerZones.FirstOrDefault(z => z.ZoneId == e.ZoneId);
-                    if (dangerZone != null)
+                    if (dangerZone != null && dangerZone.IsEnabled != e.IsEnabled)
                     {
                         dangerZone.IsEnabled = e.IsEnabled;
                         dangerZone.Opacity = e.IsEnabled ? e.Zone.Opacity : 0.05;
@@ -1205,13 +1212,13 @@ namespace SafetyVisionMonitor.ViewModels
                     (int)scaledBoundingBox.Height
                 );
 
-                var color = detection.ClassName.ToLower() == "person" 
+                var color = detection.Label == "person" 
                     ? new Scalar(0, 0, 255) : new Scalar(0, 255, 0);
 
                 Cv2.Rectangle(frame, rect, color, 2);
 
                 // 라벨 텍스트
-                var label = $"{detection.ClassName} ({detection.Confidence:P0})";
+                var label = $"{detection.DisplayName} ({detection.Confidence:P0})";
                 
                 // 텍스트 배경
                 var textSize = Cv2.GetTextSize(label, HersheyFonts.HersheySimplex, 0.5, 1, out var baseline);

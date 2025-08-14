@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.Input;
 using SafetyVisionMonitor.Models;
 using SafetyVisionMonitor.Shared.ViewModels.Base;
 using Microsoft.Win32;
+using SafetyVisionMonitor.Services;
 
 namespace SafetyVisionMonitor.ViewModels
 {
@@ -30,11 +31,13 @@ namespace SafetyVisionMonitor.ViewModels
                 "safety-settings.json"
             );
 
-            // 기본 설정으로 초기화
-            Settings = new SafetySettings();
+            // 전역 설정 관리자에서 현재 설정 가져오기
+            Settings = SafetySettingsManager.Instance.CurrentSettings;
             
-            // 설정 로드
-            _ = LoadSettingsAsync();
+            // 설정 변경 이벤트 구독
+            SafetySettingsManager.Instance.SettingsChanged += OnGlobalSettingsChanged;
+            
+            StatusMessage = "전역 설정에서 로드되었습니다.";
         }
 
         #region 설정 관리 명령
@@ -238,8 +241,9 @@ namespace SafetyVisionMonitor.ViewModels
                     return;
                 }
 
-                await SaveSettingsToFileAsync(settingsFilePath);
-                StatusMessage = "설정이 저장되었습니다.";
+                // 전역 설정 관리자를 통해 저장
+                await SafetySettingsManager.Instance.UpdateSettingsAsync(Settings);
+                StatusMessage = "설정이 저장되고 전체 시스템에 적용되었습니다.";
             }
             catch (Exception ex)
             {
@@ -344,6 +348,25 @@ namespace SafetyVisionMonitor.ViewModels
             OnPropertyChanged(nameof(HasZoneMonitoring));
             OnPropertyChanged(nameof(HasUnsafeBehaviorMonitoring));
             OnPropertyChanged(nameof(HasExternalIntegration));
+        }
+        
+        /// <summary>
+        /// 전역 설정 변경 이벤트 핸들러
+        /// </summary>
+        private void OnGlobalSettingsChanged(object? sender, SafetySettings newSettings)
+        {
+            Settings = newSettings;
+            StatusMessage = "전역 설정이 업데이트되었습니다.";
+            System.Diagnostics.Debug.WriteLine("SafetySettingsViewModel: 전역 설정 변경 반영됨");
+        }
+        
+        /// <summary>
+        /// 리소스 정리
+        /// </summary>
+        public override void Cleanup()
+        {
+            SafetySettingsManager.Instance.SettingsChanged -= OnGlobalSettingsChanged;
+            base.Cleanup();
         }
     }
 }

@@ -50,6 +50,16 @@ namespace SafetyVisionMonitor.Shared.Models
         public string ClassName { get; set; } = string.Empty;
         
         /// <summary>
+        /// 표준화된 레이블 (효율적인 객체 타입 비교용)
+        /// </summary>
+        public string Label { get; set; } = string.Empty;
+        
+        /// <summary>
+        /// 화면 표시용 간결한 이름
+        /// </summary>
+        public string DisplayName => GetDisplayName();
+        
+        /// <summary>
         /// 검출된 카메라 ID
         /// </summary>
         public string CameraId { get; set; } = string.Empty;
@@ -82,9 +92,57 @@ namespace SafetyVisionMonitor.Shared.Models
         /// </summary>
         public float Area => BoundingBox.Width * BoundingBox.Height;
         
+        /// <summary>
+        /// 화면 표시용 간결한 이름 생성
+        /// </summary>
+        private string GetDisplayName()
+        {
+            // Label이 있으면 Label 사용, 없으면 ClassName에서 추출
+            if (!string.IsNullOrEmpty(Label))
+            {
+                return Label switch
+                {
+                    "person" => "사람",
+                    "car" => "자동차",
+                    "truck" => "트럭",
+                    "bicycle" => "자전거",
+                    "motorcycle" => "오토바이",
+                    "bus" => "버스",
+                    _ => Label.Substring(0, Math.Min(Label.Length, 10)) // 최대 10글자
+                };
+            }
+            
+            // ClassName에서 LabelModel 형태 파싱
+            if (!string.IsNullOrEmpty(ClassName) && ClassName.Contains("Name="))
+            {
+                var nameStart = ClassName.IndexOf("Name=") + 5;
+                var nameEnd = ClassName.IndexOf("}", nameStart);
+                
+                if (nameStart > 5 && nameEnd > nameStart)
+                {
+                    var name = ClassName.Substring(nameStart, nameEnd - nameStart).Trim();
+                    return name switch
+                    {
+                        "person" => "사람",
+                        "car" => "자동차",
+                        "truck" => "트럭",
+                        "bicycle" => "자전거",
+                        "motorcycle" => "오토바이",
+                        "bus" => "버스",
+                        _ => name.Substring(0, Math.Min(name.Length, 10))
+                    };
+                }
+            }
+            
+            // 기본값
+            return !string.IsNullOrEmpty(ClassName) 
+                ? ClassName.Substring(0, Math.Min(ClassName.Length, 10)) 
+                : "객체";
+        }
+
         public override string ToString()
         {
-            return $"{ClassName} ({Confidence:F2}) at ({BoundingBox.X:F0}, {BoundingBox.Y:F0})";
+            return $"{DisplayName} ({Confidence:F2}) at ({BoundingBox.X:F0}, {BoundingBox.Y:F0})";
         }
     }
     

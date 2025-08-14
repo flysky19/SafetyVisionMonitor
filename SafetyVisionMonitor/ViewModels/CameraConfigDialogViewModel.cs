@@ -5,6 +5,7 @@ using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SafetyVisionMonitor.Shared.Models;
+using SafetyVisionMonitor.Services;
 
 namespace SafetyVisionMonitor.ViewModels
 {
@@ -65,6 +66,7 @@ namespace SafetyVisionMonitor.ViewModels
                 CameraType.RTSP => "예: rtsp://192.168.1.100:554/stream1",
                 CameraType.USB => "예: 0 (첫 번째 USB 카메라)",
                 CameraType.File => "예: C:\\Videos\\test.mp4",
+                CameraType.YouTube => "예: https://www.youtube.com/watch?v=VIDEO_ID",
                 _ => ""
             };
         }
@@ -299,6 +301,19 @@ namespace SafetyVisionMonitor.ViewModels
                 
             if (string.IsNullOrWhiteSpace(Camera.ConnectionString))
                 return false;
+                
+            // YouTube URL인 경우 유효성 검사
+            if (Camera.Type == CameraType.YouTube)
+            {
+                if (!YouTubeVideoService.IsYouTubeUrl(Camera.ConnectionString))
+                    return false;
+            }
+            // USB 카메라인 경우 숫자 형식 검사
+            else if (Camera.Type == CameraType.USB)
+            {
+                if (!int.TryParse(Camera.ConnectionString, out _))
+                    return false;
+            }
                 
             if (Camera.Width <= 0 || Camera.Height <= 0)
                 return false;

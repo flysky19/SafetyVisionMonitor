@@ -96,7 +96,7 @@ namespace SafetyVisionMonitor.Services
                 foreach (var detection in detections)
                 {
                     // 사람만 체크 (필요시 다른 객체도 확장 가능)
-                    if (detection.ClassName.Contains("person") == false)
+                    if (detection.Label != "person")
                         continue;
                     
                     var personViolations = new List<ZoneViolation>();

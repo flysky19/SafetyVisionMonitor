@@ -76,6 +76,7 @@ namespace SafetyVisionMonitor.Shared.Models
     {
         RTSP,
         USB,
-        File
+        File,
+        YouTube
     }
 }

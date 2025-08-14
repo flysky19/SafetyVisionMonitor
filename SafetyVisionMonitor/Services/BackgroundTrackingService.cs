@@ -100,10 +100,15 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         public void InitializeCameraTracking(string cameraId)
         {
-            if (_globalTrackingConfig == null) return;
+            if (_globalTrackingConfig == null)
+            {
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Global tracking config is null for camera {cameraId}");
+                return;
+            }
             
             if (!_trackingServices.ContainsKey(cameraId))
             {
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Initializing tracking service for camera {cameraId}, Config enabled: {_globalTrackingConfig.IsEnabled}");
                 var trackingService = new PersonTrackingService(_globalTrackingConfig);
                 _trackingServices[cameraId] = trackingService;
                 _latestTrackedPersons[cameraId] = new List<TrackedPerson>();
@@ -153,14 +158,26 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         private List<TrackedPerson> ProcessDetectionsInternal(string cameraId, List<DetectionResult> detections)
         {
+            System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: ProcessDetectionsInternal - Camera: {cameraId}, Detections: {detections.Count}");
+            
             // 카메라별 추적 서비스 초기화 (필요시)
             InitializeCameraTracking(cameraId);
             
             if (!_trackingServices.TryGetValue(cameraId, out var trackingService))
+            {
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: No tracking service found for camera {cameraId}");
                 return new List<TrackedPerson>();
+            }
             
             try
             {
+                // 트래킹이 비활성화된 경우 스킵
+                if (_globalTrackingConfig == null || !_globalTrackingConfig.IsEnabled)
+                {
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Tracking disabled for camera {cameraId}");
+                    return new List<TrackedPerson>();
+                }
+                
                 // 성능 체크: CPU 사용률이 너무 높으면 스킵
                 if (IsSystemOverloaded())
                 {
@@ -168,8 +185,15 @@ namespace SafetyVisionMonitor.Services
                     return GetLatestTrackedPersons(cameraId);
                 }
                 
-                // 사람만 필터링 (문자열에서 "person" 포함 여부 확인)
-                var personDetections = detections.Where(d => d.ClassName?.ToLower()?.Contains("person") == true).ToList();
+                // 검출 결과 Label 확인
+                foreach (var detection in detections.Take(3)) // 처음 3개만 로그
+                {
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Camera {cameraId} - Detection Label: '{detection.Label}', ClassName: '{detection.ClassName}'");
+                }
+                
+                // 사람만 필터링 (효율적인 Label 속성 사용)
+                var personDetections = detections.Where(d => d.Label == "person").ToList();
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Camera {cameraId} - Total detections: {detections.Count}, Person detections: {personDetections.Count}");
                 
                 // 아크릴 필터링 적용 (경계선 기준으로 내부/외부 판단 및 필터링)
                 if (_acrylicFilters.TryGetValue(cameraId, out var acrylicFilter))
@@ -180,6 +204,7 @@ namespace SafetyVisionMonitor.Services
                 
                 // 추적 업데이트
                 var trackedPersons = trackingService.UpdateTracking(personDetections, cameraId);
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Camera {cameraId} - Tracked persons: {trackedPersons.Count}");
                 
                 // 메모리 정리: 오래된 트래커 제거
                 CleanupOldTrackers(trackedPersons);
@@ -224,7 +249,7 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         private void ApplyTrackingIdsToDetections(List<DetectionResult> detections, List<TrackedPerson> trackedPersons)
         {
-            foreach (var detection in detections.Where(d => d.ClassName?.ToLower()?.Contains("person") == true))
+            foreach (var detection in detections.Where(d => d.Label == "person"))
             {
                 var tracked = trackedPersons.FirstOrDefault(t => 
                     Math.Abs(t.BoundingBox.X - detection.BoundingBox.X) < 10 &&

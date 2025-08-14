@@ -28,7 +28,7 @@ namespace SafetyVisionMonitor.Services.Tracking
         public List<TrackedPerson> UpdateTracking(List<DetectionResult> detections, string cameraId)
         {
             var personDetections = detections
-                .Where(d => d.ClassName?.ToLower()?.Contains("person") == true)
+                .Where(d => d.Label == "person")
                 .ToList();
             var trackedPersons = new List<TrackedPerson>();
 

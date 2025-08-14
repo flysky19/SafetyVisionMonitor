@@ -114,7 +114,7 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         private bool IsPersonDetection(DetectionResult detection)
         {
-            return detection.ClassName?.ToLower()?.Contains("person") == true;
+            return detection.Label == "person";
         }
 
         /// <summary>

@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using OpenCvSharp;
+using SafetyVisionMonitor.Models;
 using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services
@@ -18,6 +19,7 @@ namespace SafetyVisionMonitor.Services
         private readonly DispatcherTimer _performanceTimer;
         private readonly SafetyDetectionService _safetyDetection;
         private readonly BackgroundTrackingService _trackingService;
+        private readonly PrivacyProtectionService _privacyProtection;
         private Task? _monitoringTask;
         
         // 이벤트
@@ -48,6 +50,10 @@ namespace SafetyVisionMonitor.Services
             _gpuCounters = new List<PerformanceCounter>();
             _safetyDetection = new SafetyDetectionService(App.DatabaseService);
             _trackingService = new BackgroundTrackingService();
+            _privacyProtection = new PrivacyProtectionService(SafetySettingsManager.Instance.CurrentSettings);
+            
+            // 설정 변경 이벤트 구독
+            SafetySettingsManager.Instance.SettingsChanged += OnSettingsChanged;
             
             try
             {
@@ -87,6 +93,11 @@ namespace SafetyVisionMonitor.Services
             if (App.AIPipeline != null)
             {
                 App.AIPipeline.ObjectDetected += OnAIObjectDetected;
+                Debug.WriteLine("MonitoringService: AI 파이프라인 ObjectDetected 이벤트 구독 완료");
+            }
+            else
+            {
+                Debug.WriteLine("MonitoringService: AI 파이프라인이 null입니다!");
             }
             
             // 안전 감시 이벤트 구독
@@ -206,31 +217,107 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         private async void OnAIObjectDetected(object? sender, ObjectDetectionEventArgs e)
         {
+            Debug.WriteLine($"MonitoringService: OnAIObjectDetected 호출됨 - 카메라: {e.CameraId}, 검출 객체 수: {e.Detections.Length}");
+            
             try
             {
-                // 1. 추적 처리 (검출 결과에 트래킹 ID 적용)
+                // 1. 현재 프레임 가져오기
+                var currentFrame = App.CameraService?.GetLatestFrame(e.CameraId);
+                if (currentFrame == null)
+                {
+                    Debug.WriteLine($"MonitoringService: No frame available for camera {e.CameraId}");
+                    return;
+                }
+                
+                // 2. 개인정보 보호 처리 (얼굴/몸 흐림)
+                Mat processedFrame = currentFrame;
+                bool faceBlurEnabled = SafetySettingsManager.Instance.IsFeatureEnabled("faceblur");
+                bool bodyBlurEnabled = SafetySettingsManager.Instance.IsFeatureEnabled("bodyblur");
+                
+                // 테스트용: 강제로 프라이버시 보호 활성화 (임시)
+                if (!faceBlurEnabled && !bodyBlurEnabled)
+                {
+                    Debug.WriteLine("MonitoringService: 테스트용 - 프라이버시 보호 강제 활성화");
+                    faceBlurEnabled = true;
+                    bodyBlurEnabled = true;
+                }
+                
+                // 설정값 직접 확인
+                var currentSettings = SafetySettingsManager.Instance.CurrentSettings;
+                Debug.WriteLine($"MonitoringService: Privacy settings check:");
+                Debug.WriteLine($"  - IsFeatureEnabled('faceblur'): {faceBlurEnabled}");
+                Debug.WriteLine($"  - IsFeatureEnabled('bodyblur'): {bodyBlurEnabled}");
+                Debug.WriteLine($"  - CurrentSettings.IsFaceBlurEnabled: {currentSettings.IsFaceBlurEnabled}");
+                Debug.WriteLine($"  - CurrentSettings.IsFullBodyBlurEnabled: {currentSettings.IsFullBodyBlurEnabled}");
+                
+                if (faceBlurEnabled || bodyBlurEnabled)
+                {
+                    Debug.WriteLine($"MonitoringService: Applying privacy protection to {e.CameraId} with {e.Detections.Length} detections");
+                    // 검출 정보를 함께 전달하여 정확한 영역에 흐림 처리 적용
+                    processedFrame = _privacyProtection.ProcessFrame(currentFrame, e.Detections);
+                    Debug.WriteLine($"MonitoringService: Privacy protection completed for {e.CameraId}");
+                }
+                else
+                {
+                    Debug.WriteLine($"MonitoringService: No privacy protection needed for {e.CameraId}");
+                }
+                
+                // 3. 추적 처리 (검출 결과에 트래킹 ID 적용)
                 var detectionsList = e.Detections.ToList();
                 var trackedPersons = _trackingService.ProcessDetections(e.CameraId, detectionsList);
                 
-                // 2. 검출된 객체에 대해 안전 검사 수행 (추적 ID가 적용된 검출 결과로)
+                // 4. 검출된 객체에 대해 안전 검사 수행 (추적 ID가 적용된 검출 결과로)
                 var safetyResult = await _safetyDetection.CheckSafetyAsync(e.CameraId, detectionsList.ToArray());
                 
-                // 3. 통계 업데이트
+                // 5. 통계 업데이트
                 DetectedPersonCount = safetyResult.TotalPersons;
                 ActiveAlertsCount = safetyResult.Violations.Count;
                 
-                // 4. 기존 이벤트도 발생 (하위 호환성) - 추적 ID가 포함된 검출 결과
+                // 6. 처리된 프레임을 UI로 전송 (개인정보 보호가 적용된 상태)
+                if (faceBlurEnabled || bodyBlurEnabled)
+                {
+                    Debug.WriteLine($"MonitoringService: Updating UI with processed frame for {e.CameraId}");
+                    // UI에 보호된 프레임 전송
+                    App.Current.Dispatcher.Invoke(() =>
+                    {
+                        // CameraService나 UI 컴포넌트에 보호된 프레임 업데이트
+                        UpdateCameraFrame(e.CameraId, processedFrame);
+                    });
+                    
+                    // 처리된 프레임은 다른 곳에서 사용되므로 여기서는 해제하지 않음
+                    // processedFrame.Dispose();
+                }
+                else
+                {
+                    Debug.WriteLine($"MonitoringService: No privacy protection, using original frame for {e.CameraId}");
+                }
+                
+                // 6. 기존 이벤트도 발생 (하위 호환성) - 추적 ID가 포함된 검출 결과
                 foreach (var detection in detectionsList)
                 {
                     ObjectDetected?.Invoke(this, detection);
                 }
                 
+                // 7. 메모리 정리
+                if (processedFrame != currentFrame && processedFrame != null)
+                {
+                    // processedFrame은 UI에서 사용 중일 수 있으므로 여기서는 해제하지 않음
+                    Debug.WriteLine($"MonitoringService: Processed frame kept for UI - {e.CameraId}");
+                }
+                
+                // 원본 프레임 해제
+                currentFrame?.Dispose();
+                
                 Debug.WriteLine($"MonitoringService: {e.CameraId} - {e.Detections.Length} objects detected, " +
-                              $"{trackedPersons.Count} tracked, {safetyResult.Violations.Count} violations");
+                              $"{trackedPersons.Count} tracked, {safetyResult.Violations.Count} violations, " +
+                              $"Privacy: {_privacyProtection.GetActiveProtections()}");
+                              
+                Debug.WriteLine($"MonitoringService: OnAIObjectDetected 완료 - {e.CameraId}");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"MonitoringService: AI detection handling error: {ex.Message}");
+                Debug.WriteLine($"MonitoringService: Exception stack trace: {ex.StackTrace}");
             }
         }
         
@@ -684,11 +771,17 @@ namespace SafetyVisionMonitor.Services
             }
             _gpuCounters.Clear();
             
+            // 설정 변경 이벤트 구독 해제
+            SafetySettingsManager.Instance.SettingsChanged -= OnSettingsChanged;
+            
             // 안전 감시 서비스 정리
             _safetyDetection?.Dispose();
             
             // 추적 서비스 정리
             _trackingService?.Dispose();
+            
+            // 개인정보 보호 서비스 정리
+            _privacyProtection?.Dispose();
         }
         
         /// <summary>
@@ -734,6 +827,51 @@ namespace SafetyVisionMonitor.Services
         public BackgroundTrackingService GetTrackingService()
         {
             return _trackingService;
+        }
+        
+        /// <summary>
+        /// 개인정보 보호 서비스 접근
+        /// </summary>
+        public PrivacyProtectionService GetPrivacyProtectionService()
+        {
+            return _privacyProtection;
+        }
+        
+        /// <summary>
+        /// 안전 설정 변경 이벤트 핸들러
+        /// </summary>
+        private void OnSettingsChanged(object? sender, SafetySettings newSettings)
+        {
+            try
+            {
+                _privacyProtection.UpdateSettings(newSettings);
+                
+                var activeProtections = _privacyProtection.GetActiveProtections();
+                Debug.WriteLine($"MonitoringService: Privacy protection settings updated - {activeProtections}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"MonitoringService: Settings update error: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 카메라 프레임 업데이트 (개인정보 보호 적용된 프레임)
+        /// </summary>
+        private void UpdateCameraFrame(string cameraId, Mat processedFrame)
+        {
+            try
+            {
+                Debug.WriteLine($"MonitoringService: Updating protected frame for camera {cameraId}");
+                
+                // CameraService의 처리된 프레임 캐시에 저장 (내부에서 이벤트 자동 발생)
+                App.CameraService?.UpdateProcessedFrame(cameraId, processedFrame);
+                Debug.WriteLine($"MonitoringService: Protected frame saved to CameraService for {cameraId}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"MonitoringService: Frame update error for {cameraId}: {ex.Message}");
+            }
         }
     }
     
