@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using OpenCvSharp;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using Point = System.Drawing.Point;
 using Size = OpenCvSharp.Size;
 

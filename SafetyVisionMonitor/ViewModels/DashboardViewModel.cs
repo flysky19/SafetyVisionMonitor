@@ -13,9 +13,9 @@ using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
 using Point = OpenCvSharp.Point;
 using SafetyVisionMonitor.Helpers;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services;
-using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Shared.ViewModels.Base;
 using Rect = OpenCvSharp.Rect;
 
 namespace SafetyVisionMonitor.ViewModels
@@ -61,97 +61,10 @@ namespace SafetyVisionMonitor.ViewModels
         [ObservableProperty]
         private int totalTrackersCreated = 0;
         
-        [ObservableProperty]
-        private bool showTrackingIds = true;
-        
-        [ObservableProperty]
-        private bool showTrackingPaths = true;
-        
         // ROI 관련 속성
         [ObservableProperty]
         private bool showROIRegions = false;
         
-        /// <summary>
-        /// ShowTrackingIds 속성 변경 시 백그라운드 서비스에 반영
-        /// </summary>
-        partial void OnShowTrackingIdsChanged(bool value)
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    var trackingService = App.TrackingService;
-                    if (trackingService != null)
-                    {
-                        // 현재 설정을 복사하고 ShowTrackingId만 변경
-                        var currentConfig = new TrackingConfiguration
-                        {
-                            IsEnabled = true,
-                            ShowTrackingId = value,
-                            ShowTrackingPath = ShowTrackingPaths,
-                            MaxTrackingDistance = 50,
-                            MaxDisappearFrames = 30,
-                            IouThreshold = 0.3f,
-                            SimilarityThreshold = 0.7f,
-                            EnableReIdentification = true,
-                            EnableMultiCameraTracking = true,
-                            TrackHistoryLength = 50,
-                            PathDisplayLength = 20,
-                            TrackingMethod = "SORT",
-                            AutoSaveTracking = true,
-                            AutoSaveInterval = 60
-                        };
-                        
-                        await trackingService.UpdateTrackingConfigurationAsync(currentConfig);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Failed to update ShowTrackingIds: {ex.Message}");
-                }
-            });
-        }
-        
-        /// <summary>
-        /// ShowTrackingPaths 속성 변경 시 백그라운드 서비스에 반영
-        /// </summary>
-        partial void OnShowTrackingPathsChanged(bool value)
-        {
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    var trackingService = App.TrackingService;
-                    if (trackingService != null)
-                    {
-                        // 현재 설정을 복사하고 ShowTrackingPath만 변경
-                        var currentConfig = new TrackingConfiguration
-                        {
-                            IsEnabled = true,
-                            ShowTrackingId = ShowTrackingIds,
-                            ShowTrackingPath = value,
-                            MaxTrackingDistance = 50,
-                            MaxDisappearFrames = 30,
-                            IouThreshold = 0.3f,
-                            SimilarityThreshold = 0.7f,
-                            EnableReIdentification = true,
-                            EnableMultiCameraTracking = true,
-                            TrackHistoryLength = 50,
-                            PathDisplayLength = 20,
-                            TrackingMethod = "SORT",
-                            AutoSaveTracking = true,
-                            AutoSaveInterval = 60
-                        };
-                        
-                        await trackingService.UpdateTrackingConfigurationAsync(currentConfig);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Failed to update ShowTrackingPaths: {ex.Message}");
-                }
-            });
-        }
         
         // 정적 속성으로 디버그 설정 공유
         public static bool StaticShowAllDetections { get; private set; }
@@ -1464,8 +1377,9 @@ namespace SafetyVisionMonitor.ViewModels
                     // UI 프레임 크기에 맞게 스케일링 (CameraService에서 0.5 스케일 적용)
                     var scale = 0.5f;
                     
-                    // 경로 표시 설정 확인 후 경로 그리기
-                    if (ShowTrackingPaths && person.TrackingHistory != null && person.TrackingHistory.Count >= 2)
+                    // 경로 표시 설정 확인 후 경로 그리기 (TrackingService의 설정 사용)
+                    var trackingConfig = App.TrackingService?.GetTrackingConfiguration();
+                    if (trackingConfig?.ShowTrackingPath == true && person.TrackingHistory != null && person.TrackingHistory.Count >= 2)
                     {
                         // 경로 표시 (더 길게 50개 점으로 확장)
                         var recentPath = person.TrackingHistory.TakeLast(50).ToList();
@@ -1538,17 +1452,17 @@ namespace SafetyVisionMonitor.ViewModels
                         Cv2.Circle(drawFrame, centerPoint, 6, new Scalar(128, 128, 128), 1);
                     }
                     
-                    // ID 및 위치 정보 표시 (체크박스 확인)
-                    if (ShowTrackingIds)
+                    // ID 및 위치 정보 표시 (TrackingService의 설정 사용)
+                    if (trackingConfig?.ShowTrackingId == true)
                     {
                         var locationText = location switch
                         {
-                            PersonLocation.Interior => "내부",
-                            PersonLocation.Exterior => "외부", 
-                            _ => "불명"
+                            PersonLocation.Interior => "Interior",
+                            PersonLocation.Exterior => "Exterior", 
+                            _ => "Both"
                         };
                         
-                        var idText = $"#{person.TrackingId}";
+                        var idText = $"#{person.TrackingId}/{locationText}";
                         var textPos = new Point(centerPoint.X + 15, centerPoint.Y - 10);
                         
                         // 배경 색상 (위치에 따라)

@@ -8,7 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.ViewModels
 {

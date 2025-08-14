@@ -7,7 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services;
 
 namespace SafetyVisionMonitor.Controls

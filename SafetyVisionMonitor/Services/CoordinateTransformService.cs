@@ -1,5 +1,5 @@
 using System.Windows;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services
 {

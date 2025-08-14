@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using OpenCvSharp;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services
 {

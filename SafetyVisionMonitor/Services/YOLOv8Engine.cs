@@ -1,15 +1,9 @@
-using System;
-using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
-using System.Linq;
 using System.Net.Http;
-using System.Reflection;
-using System.Threading.Tasks;
 using Microsoft.ML.OnnxRuntime;
 using OpenCvSharp;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SkiaSharp;
 using YoloDotNet;
 using YoloDotNet.Core;
@@ -17,7 +11,7 @@ using YoloDotNet.Enums;
 using YoloDotNet.Models;
 using Size = System.Drawing.Size;
 
-namespace SafetyVisionMonitor.AI
+namespace SafetyVisionMonitor.Services
 {
     /// <summary>
     /// YOLOv8 YoloDotNet 추론 엔진
@@ -25,7 +19,7 @@ namespace SafetyVisionMonitor.AI
     public class YOLOv8Engine : IDisposable
     {
         private Yolo? _yolo;
-        private Models.ModelMetadata _metadata;
+        private ModelMetadata _metadata;
         private bool _disposed = false;
         private static readonly HttpClient _httpClient = new HttpClient();
         private bool _isUsingGpu = false;
@@ -55,7 +49,7 @@ namespace SafetyVisionMonitor.AI
             "hair drier", "toothbrush"
         };
         
-        public Models.ModelMetadata Metadata => _metadata;
+        public ModelMetadata Metadata => _metadata;
         public bool IsLoaded => _yolo != null;
         public bool IsUsingGpu => _isUsingGpu;
         public string ExecutionProvider => _isUsingGpu ? "CUDA GPU" : "CPU";
@@ -224,48 +218,137 @@ namespace SafetyVisionMonitor.AI
         {
             try
             {
-                // ONNX Runtime의 사용 가능한 프로바이더 확인
-                using var env = OrtEnv.Instance();
-                var providers = env.GetAvailableProviders();
-        
-                System.Diagnostics.Debug.WriteLine($"Available ONNX Runtime providers: {string.Join(", ", providers)}");
-        
-                // CUDA 프로바이더 확인
-                bool hasCuda = providers.Contains("CUDAExecutionProvider");
-        
-                if (hasCuda)
-                {
-                    // CUDA 버전 정보 출력
-                    var cudaPath = Environment.GetEnvironmentVariable("CUDA_PATH");
-                    System.Diagnostics.Debug.WriteLine($"CUDA_PATH: {cudaPath}");
-            
-                    // nvidia-smi로 GPU 정보 확인
-                    try
-                    {
-                        var psi = new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = "nvidia-smi",
-                            Arguments = "--query-gpu=name,driver_version,memory.total --format=csv,noheader",
-                            RedirectStandardOutput = true,
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        };
+                System.Diagnostics.Debug.WriteLine("=== CUDA 환경 체크 시작 ===");
                 
-                        using var process = System.Diagnostics.Process.Start(psi);
-                        if (process != null)
+                // 1. 환경 변수 확인
+                var cudaPath = Environment.GetEnvironmentVariable("CUDA_PATH");
+                var cudaPathV12 = Environment.GetEnvironmentVariable("CUDA_PATH_V12_6");
+                var cudaPathV11 = Environment.GetEnvironmentVariable("CUDA_PATH_V11_8");
+                
+                System.Diagnostics.Debug.WriteLine($"CUDA_PATH: {cudaPath ?? "없음"}");
+                System.Diagnostics.Debug.WriteLine($"CUDA_PATH_V12_6: {cudaPathV12 ?? "없음"}");
+                System.Diagnostics.Debug.WriteLine($"CUDA_PATH_V11_8: {cudaPathV11 ?? "없음"}");
+                
+                // 2. PATH 환경변수에서 CUDA 바이너리 확인
+                var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+                var hasCudaInPath = pathEnv.Contains("CUDA") || pathEnv.Contains("cuda");
+                System.Diagnostics.Debug.WriteLine($"PATH에 CUDA 포함: {hasCudaInPath}");
+                
+                // 3. ONNX Runtime 프로바이더 확인 (더 안전한 방식)
+                string[] availableProviders;
+                try
+                {
+                    // OrtEnv 사용 없이 직접 확인
+                    availableProviders = OrtEnv.Instance().GetAvailableProviders().ToArray();
+                    System.Diagnostics.Debug.WriteLine($"사용 가능한 ONNX Runtime 프로바이더: {string.Join(", ", availableProviders)}");
+                }
+                catch (Exception ortEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"OrtEnv 초기화 실패: {ortEx.Message}");
+                    // 대체 방법: 직접 DLL 확인
+                    return CheckCudaDllsDirectly();
+                }
+                
+                // 4. CUDA 프로바이더 확인
+                bool hasCudaProvider = availableProviders.Contains("CUDAExecutionProvider");
+                System.Diagnostics.Debug.WriteLine($"CUDAExecutionProvider 사용 가능: {hasCudaProvider}");
+                
+                // 5. nvidia-smi 실행 테스트
+                bool nvidiaSmiWorking = false;
+                try
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "nvidia-smi",
+                        Arguments = "--query-gpu=name,driver_version,memory.total --format=csv,noheader",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    
+                    using var process = System.Diagnostics.Process.Start(psi);
+                    if (process != null)
+                    {
+                        process.WaitForExit(5000); // 5초 타임아웃
+                        if (process.ExitCode == 0)
                         {
-                            var output = process.StandardOutput.ReadToEnd();
-                            System.Diagnostics.Debug.WriteLine($"GPU Info: {output.Trim()}");
+                            var output = process.StandardOutput.ReadToEnd().Trim();
+                            if (!string.IsNullOrEmpty(output))
+                            {
+                                System.Diagnostics.Debug.WriteLine($"GPU 정보: {output}");
+                                nvidiaSmiWorking = true;
+                            }
+                        }
+                        else
+                        {
+                            var error = process.StandardError.ReadToEnd();
+                            System.Diagnostics.Debug.WriteLine($"nvidia-smi 오류: {error}");
                         }
                     }
-                    catch { }
                 }
-        
-                return hasCuda;
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"nvidia-smi 실행 실패: {ex.Message}");
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"nvidia-smi 작동: {nvidiaSmiWorking}");
+                
+                // 6. 최종 판단
+                bool cudaAvailable = hasCudaProvider && nvidiaSmiWorking;
+                System.Diagnostics.Debug.WriteLine($"=== CUDA 최종 사용 가능: {cudaAvailable} ===");
+                
+                return cudaAvailable;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error checking CUDA: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"CUDA 환경 체크 중 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"스택 트레이스: {ex.StackTrace}");
+                return false;
+            }
+        }
+        
+        /// <summary>
+        /// 직접 CUDA DLL 파일 확인 (ONNX Runtime 실패 시 대체 방법)
+        /// </summary>
+        private bool CheckCudaDllsDirectly()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("직접 CUDA DLL 확인 시작...");
+                
+                var possibleCudaPaths = new[]
+                {
+                    @"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin",
+                    @"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.0\bin",
+                    @"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8\bin",
+                    Environment.GetEnvironmentVariable("CUDA_PATH") + @"\bin"
+                }.Where(path => !string.IsNullOrEmpty(path) && Directory.Exists(path));
+                
+                foreach (var path in possibleCudaPaths)
+                {
+                    System.Diagnostics.Debug.WriteLine($"CUDA 경로 확인: {path}");
+                    
+                    // 필수 CUDA DLL 확인
+                    var requiredDlls = new[] { "cudart64_12.dll", "cudart64_11.dll", "nvcuda.dll" };
+                    
+                    foreach (var dll in requiredDlls)
+                    {
+                        var dllPath = Path.Combine(path, dll);
+                        if (File.Exists(dllPath))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"CUDA DLL 발견: {dllPath}");
+                            return true;
+                        }
+                    }
+                }
+                
+                System.Diagnostics.Debug.WriteLine("CUDA DLL을 찾을 수 없음");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CUDA DLL 직접 확인 중 오류: {ex.Message}");
                 return false;
             }
         }
@@ -329,7 +412,7 @@ namespace SafetyVisionMonitor.AI
         {
             if (_yolo == null) return;
             
-            _metadata = new Models.ModelMetadata();
+            _metadata = new ModelMetadata();
             
             // YoloDotNet에서 메타데이터 추출
             _metadata.InputSize = new Size(640, 640); // YOLOv8 기본 입력 크기
@@ -751,5 +834,16 @@ namespace SafetyVisionMonitor.AI
         public long DownloadedBytes { get; set; }
         public long TotalBytes { get; set; }
         public string ModelName { get; set; } = string.Empty;
+    }
+    
+    /// <summary>
+    /// 모델 메타데이터 클래스 (로컬 정의)
+    /// </summary>
+    public class ModelMetadata
+    {
+        public Size InputSize { get; set; }
+        public int ClassCount { get; set; }
+        public int AnchorCount { get; set; }
+        public string[] ClassNames { get; set; } = Array.Empty<string>();
     }
 }

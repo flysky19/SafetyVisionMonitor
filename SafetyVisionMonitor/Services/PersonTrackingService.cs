@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services.Tracking;
 using Syncfusion.Data.Extensions;
 
@@ -205,9 +205,11 @@ namespace SafetyVisionMonitor.Services
         public float Confidence { get; set; }
         public string CameraId { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; }
+        public DateTime FirstDetectionTime { get; set; } = DateTime.Now;
         public List<PointF> TrackingHistory { get; set; } = new();
         public bool IsActive { get; set; }
         public int FramesSinceUpdate { get; set; }
+        public string? Location { get; set; }
         
         public PointF Center => new(
             BoundingBox.X + BoundingBox.Width / 2,

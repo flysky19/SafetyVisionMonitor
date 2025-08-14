@@ -1,6 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace SafetyVisionMonitor.ViewModels.Base
+namespace SafetyVisionMonitor.Shared.ViewModels.Base
 {
     public abstract class BaseViewModel : ObservableObject
     {

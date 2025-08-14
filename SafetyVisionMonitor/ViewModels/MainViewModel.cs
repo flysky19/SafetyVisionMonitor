@@ -4,7 +4,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Shared.ViewModels.Base;
 
 namespace SafetyVisionMonitor.ViewModels
 {
@@ -51,7 +51,7 @@ namespace SafetyVisionMonitor.ViewModels
                  ["ZoneSetup"] = new ZoneSetupViewModel(),
                  ["AcrylicSetup"] = new AcrylicSetupViewModel(),
                  ["History"] = new HistoryViewModel(),
-                 ["EventLog"] = new EventLogViewModel(),
+                 //["EventLog"] = new EventLogViewModel(),
                  ["TrackingSetup"] = new TrackingSetupViewModel(),
             };
             

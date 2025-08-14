@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
 using OpenCvSharp;
 using SafetyVisionMonitor.Helpers;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services
 {
@@ -25,6 +25,8 @@ namespace SafetyVisionMonitor.Services
         public CameraService()
         {
             _maxCameras = App.Configuration.GetValue<int>("AppSettings:MaxCameras", 4);
+            
+            // OpenCV 백엔드는 App.xaml.cs에서 전역 설정됨
             
             // AI 서비스의 객체 검출 이벤트 구독
             if (App.AIPipeline != null)
@@ -228,15 +230,19 @@ namespace SafetyVisionMonitor.Services
                 // 최신 검출 결과 가져오기
                 var detections = GetLatestDetections(originalFrame.CameraId);
                 
+                // 추적 정보 가져오기
+                var trackedPersons = App.TrackingService?.GetLatestTrackedPersons(originalFrame.CameraId);
+                var trackingConfig = App.TrackingService?.GetTrackingConfiguration();
+                
                 foreach (var handler in uiHandlers)
                 {
                     // UI용은 해상도 축소 (1/4 크기)
                     var uiFrame = CreateLowResolutionFrame(originalFrame.Frame);
                     
-                    // 검출 결과가 있으면 프레임에 그리기
-                    if (detections.Count > 0)
+                    // FrameRenderer를 사용하여 검출 결과와 추적 정보 렌더링
+                    if (detections.Count > 0 || trackedPersons?.Count > 0)
                     {
-                        DrawDetectionBoxes(uiFrame, detections);
+                        RenderFrameWithTracking(uiFrame, detections, trackedPersons, trackingConfig);
                     }
                     
                     try
@@ -280,11 +286,31 @@ namespace SafetyVisionMonitor.Services
             return resizedFrame;
         }
         
-        private void DrawDetectionBoxes(Mat frame, List<DetectionResult> detections)
+        /// <summary>
+        /// 축소된 프레임에 추적 정보와 검출 결과를 렌더링
+        /// </summary>
+        private void RenderFrameWithTracking(Mat frame, List<DetectionResult> detections, 
+            List<TrackedPerson>? trackedPersons, TrackingConfiguration? trackingConfig)
         {
             // 축소된 프레임에 맞게 좌표 조정 (원본의 1/2 크기)
             var scale = 0.5f;
             
+            // 추적 경로 그리기 (검출 박스보다 먼저)
+            if (trackedPersons != null && trackingConfig?.ShowTrackingPath == true)
+            {
+                DrawScaledTrackingPaths(frame, trackedPersons, trackingConfig, scale);
+            }
+            
+            // 검출 결과 그리기
+            DrawScaledDetectionBoxes(frame, detections, trackingConfig, scale);
+        }
+        
+        /// <summary>
+        /// 축소된 프레임에 검출 박스 그리기
+        /// </summary>
+        private void DrawScaledDetectionBoxes(Mat frame, List<DetectionResult> detections, 
+            TrackingConfiguration? trackingConfig, float scale)
+        {
             // 정적 속성에서 디버그 설정 가져오기
             var showAllDetections = ViewModels.DashboardViewModel.StaticShowAllDetections;
             var showDetailedInfo = ViewModels.DashboardViewModel.StaticShowDetailedInfo;
@@ -310,10 +336,12 @@ namespace SafetyVisionMonitor.Services
                 var thickness = showDetailedInfo ? 3 : 2;
                 Cv2.Rectangle(frame, rect, color, thickness);
 
-                // 라벨 텍스트 (디버그 모드에서는 더 상세한 정보)
+                // 라벨 텍스트 (트래킹 ID 설정 반영)
                 var label = showDetailedInfo 
                     ? $"{detection.ClassName} {detection.Confidence:P1} [{detection.ClassId}]"
-                    : $"{detection.ClassName} ({detection.Confidence:P0})";
+                    : detection.TrackingId.HasValue && (trackingConfig?.ShowTrackingId ?? true)
+                        ? $"{detection.ClassName} ID:{detection.TrackingId} ({detection.Confidence:P0})"
+                        : $"{detection.ClassName} ({detection.Confidence:P0})";
                 
                 // 텍스트 크기 계산
                 var fontSize = showDetailedInfo ? 0.6 : 0.5;
@@ -361,6 +389,78 @@ namespace SafetyVisionMonitor.Services
                         0.4,
                         new Scalar(255, 255, 0), // 노란색
                         1);
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 축소된 프레임에 추적 경로 그리기
+        /// </summary>
+        private void DrawScaledTrackingPaths(Mat frame, List<TrackedPerson> trackedPersons, 
+            TrackingConfiguration config, float scale)
+        {
+            foreach (var person in trackedPersons.Where(p => p.IsActive))
+            {
+                if (person.TrackingHistory == null || person.TrackingHistory.Count < 2)
+                    continue;
+                    
+                // 경로 표시 길이 제한
+                var pathLength = Math.Min(person.TrackingHistory.Count, config.PathDisplayLength);
+                var recentPath = person.TrackingHistory.TakeLast(pathLength).ToList();
+                
+                if (recentPath.Count < 2) continue;
+                
+                // 추적 ID별 색상 결정 (고유한 색상)
+                var colors = new[]
+                {
+                    new Scalar(255, 0, 0),    // 빨강
+                    new Scalar(0, 255, 0),    // 초록
+                    new Scalar(0, 0, 255),    // 파랑
+                    new Scalar(255, 255, 0),  // 노랑
+                    new Scalar(255, 0, 255),  // 마젠타
+                    new Scalar(0, 255, 255),  // 시안
+                    new Scalar(255, 128, 0),  // 주황
+                    new Scalar(128, 0, 255)   // 보라
+                };
+                
+                var colorIndex = person.TrackingId % colors.Length;
+                var pathColor = colors[colorIndex];
+                
+                // 경로 선 그리기 (스케일 적용)
+                for (int i = 0; i < recentPath.Count - 1; i++)
+                {
+                    var startPoint = new OpenCvSharp.Point(
+                        (int)(recentPath[i].X * scale), 
+                        (int)(recentPath[i].Y * scale));
+                    var endPoint = new OpenCvSharp.Point(
+                        (int)(recentPath[i + 1].X * scale), 
+                        (int)(recentPath[i + 1].Y * scale));
+                    
+                    // 선의 두께는 최신 경로일수록 두껍게
+                    var thickness = Math.Max(1, 3 - (recentPath.Count - i - 1) / 3);
+                    
+                    Cv2.Line(frame, startPoint, endPoint, pathColor, thickness);
+                }
+                
+                // 현재 위치에 원 그리기 (스케일 적용)
+                if (recentPath.Any())
+                {
+                    var currentPos = recentPath.Last();
+                    var centerPoint = new OpenCvSharp.Point(
+                        (int)(currentPos.X * scale), 
+                        (int)(currentPos.Y * scale));
+                    Cv2.Circle(frame, centerPoint, 3, pathColor, -1);
+                    
+                    // 트래킹 ID 표시 (설정이 활성화된 경우)
+                    if (config.ShowTrackingId)
+                    {
+                        var idText = $"#{person.TrackingId}";
+                        var textPos = new OpenCvSharp.Point(
+                            (int)(currentPos.X * scale) + 8, 
+                            (int)(currentPos.Y * scale) - 8);
+                        Cv2.PutText(frame, idText, textPos, HersheyFonts.HersheySimplex, 
+                                  0.4, new Scalar(255, 255, 255), 1);
+                    }
                 }
             }
         }

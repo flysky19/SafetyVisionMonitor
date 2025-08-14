@@ -3,13 +3,18 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
+using SafetyVisionMonitor.Shared.Services;
 
-namespace SafetyVisionMonitor.Models
+namespace SafetyVisionMonitor.Shared.Models
 {
     public partial class Zone3D : ObservableObject
     {
         // 데이터베이스 로딩 중에는 자동 저장하지 않도록 하는 플래그
         public bool IsLoading { get; set; } = false;
+        
+        // 의존성 주입된 서비스들
+        public static IZoneDatabaseService? DatabaseService { get; set; }
+        public static IZoneNotificationService? NotificationService { get; set; }
         
         public Zone3D()
         {
@@ -75,17 +80,16 @@ namespace SafetyVisionMonitor.Models
                 {
                     try
                     {
-                        await App.DatabaseService.SaveZone3DConfigsAsync(new List<Zone3D> { this });
-                        System.Diagnostics.Debug.WriteLine($"Zone {Name} IsEnabled={value} auto-saved to database");
-                        
-                        // UI 스레드에서 다른 ViewModel들에 구역 상태 변경 알림
-                        App.Current.Dispatcher.Invoke(() =>
+                        // 데이터베이스 서비스가 주입되었다면 저장
+                        if (DatabaseService != null)
                         {
-                            App.AppData.NotifyZoneUpdated(this);
-                            
-                            // ZoneSetupViewModel의 시각화도 업데이트
-                            App.AppData.NotifyZoneVisualizationUpdate();
-                        });
+                            await DatabaseService.SaveZone3DConfigsAsync(new List<Zone3D> { this });
+                            System.Diagnostics.Debug.WriteLine($"Zone {Name} IsEnabled={value} auto-saved to database");
+                        }
+                        
+                        // 알림 서비스가 주입되었다면 알림
+                        NotificationService?.NotifyZoneUpdated(this);
+                        NotificationService?.NotifyZoneVisualizationUpdate();
                     }
                     catch (Exception ex)
                     {

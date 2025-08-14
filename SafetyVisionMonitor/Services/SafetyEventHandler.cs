@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services.Handlers;
 
 namespace SafetyVisionMonitor.Services

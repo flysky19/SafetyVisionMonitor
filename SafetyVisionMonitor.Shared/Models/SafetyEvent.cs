@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace SafetyVisionMonitor.Models
+namespace SafetyVisionMonitor.Shared.Models
 {
     public class SafetyEvent
     {

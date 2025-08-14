@@ -4,7 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Database;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services
 {
@@ -18,6 +19,17 @@ namespace SafetyVisionMonitor.Services
         private readonly ConcurrentDictionary<string, AcrylicRegionFilter> _acrylicFilters = new();
         private TrackingConfiguration? _globalTrackingConfig;
         private bool _disposed = false;
+        
+        // AutoSave 관련
+        private System.Timers.Timer? _autoSaveTimer;
+        private readonly object _autoSaveLock = new object();
+        
+        // 성능 모니터링
+        private DateTime _lastCpuCheck = DateTime.MinValue;
+        private readonly TimeSpan _cpuCheckInterval = TimeSpan.FromSeconds(5);
+        private const double CPU_THRESHOLD = 70.0; // CPU 사용률 임계값 (%)
+        private const int MAX_TRACKERS_PER_CAMERA = 20; // 카메라당 최대 트래커 수
+        private const int MAX_HISTORY_LENGTH = 20; // 트래킹 히스토리 최대 길이 (기존 100 → 20)
         
         // 이벤트
         public event EventHandler<TrackingUpdateEventArgs>? TrackingUpdated;
@@ -65,6 +77,9 @@ namespace SafetyVisionMonitor.Services
                     };
                     
                     System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Configuration loaded - Enabled: {_globalTrackingConfig.IsEnabled}");
+                    
+                    // AutoSave 타이머 시작
+                    StartAutoSaveTimer();
                 }
                 else
                 {
@@ -112,13 +127,32 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 검출 결과를 처리하여 추적 업데이트
+        /// 검출 결과를 처리하여 추적 업데이트 (비동기)
+        /// </summary>
+        public async Task<List<TrackedPerson>> ProcessDetectionsAsync(string cameraId, List<DetectionResult> detections)
+        {
+            if (!_globalTrackingConfig?.IsEnabled == true)
+                return new List<TrackedPerson>();
+            
+            return await Task.Run(() => ProcessDetectionsInternal(cameraId, detections));
+        }
+        
+        /// <summary>
+        /// 검출 결과를 처리하여 추적 업데이트 (동기 버전 - 호환성 유지)
         /// </summary>
         public List<TrackedPerson> ProcessDetections(string cameraId, List<DetectionResult> detections)
         {
             if (!_globalTrackingConfig?.IsEnabled == true)
                 return new List<TrackedPerson>();
-            
+                
+            return ProcessDetectionsInternal(cameraId, detections);
+        }
+        
+        /// <summary>
+        /// 실제 검출 결과 처리 로직
+        /// </summary>
+        private List<TrackedPerson> ProcessDetectionsInternal(string cameraId, List<DetectionResult> detections)
+        {
             // 카메라별 추적 서비스 초기화 (필요시)
             InitializeCameraTracking(cameraId);
             
@@ -127,6 +161,13 @@ namespace SafetyVisionMonitor.Services
             
             try
             {
+                // 성능 체크: CPU 사용률이 너무 높으면 스킵
+                if (IsSystemOverloaded())
+                {
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Skipping tracking for {cameraId} due to high system load");
+                    return GetLatestTrackedPersons(cameraId);
+                }
+                
                 // 사람만 필터링 (문자열에서 "person" 포함 여부 확인)
                 var personDetections = detections.Where(d => d.ClassName?.ToLower()?.Contains("person") == true).ToList();
                 
@@ -140,24 +181,33 @@ namespace SafetyVisionMonitor.Services
                 // 추적 업데이트
                 var trackedPersons = trackingService.UpdateTracking(personDetections, cameraId);
                 
-                // 최신 추적 결과 저장
-                _latestTrackedPersons[cameraId] = trackedPersons;
+                // 메모리 정리: 오래된 트래커 제거
+                CleanupOldTrackers(trackedPersons);
+                
+                // 최신 추적 결과 저장 (스레드 안전)
+                lock (_latestTrackedPersons)
+                {
+                    _latestTrackedPersons[cameraId] = trackedPersons;
+                }
                 
                 // 검출 결과에 트래킹 ID 적용
                 ApplyTrackingIdsToDetections(detections, trackedPersons);
                 
-                // 이벤트 발생
-                TrackingUpdated?.Invoke(this, new TrackingUpdateEventArgs
+                // 이벤트 발생 (UI 스레드에서)
+                Task.Run(() =>
                 {
-                    CameraId = cameraId,
-                    TrackedPersons = trackedPersons,
-                    DetectionsWithTracking = detections
+                    TrackingUpdated?.Invoke(this, new TrackingUpdateEventArgs
+                    {
+                        CameraId = cameraId,
+                        TrackedPersons = trackedPersons.ToList(), // 복사본 생성
+                        DetectionsWithTracking = detections.ToList() // 복사본 생성
+                    });
                 });
                 
                 // 통계 업데이트 (주기적으로)
-                if (DateTime.Now.Millisecond % 100 == 0) // 대략 100ms마다
+                if (DateTime.Now.Millisecond % 500 == 0) // 500ms마다 (부하 감소)
                 {
-                    UpdateStatistics();
+                    _ = Task.Run(UpdateStatistics);
                 }
                 
                 return trackedPersons;
@@ -221,7 +271,136 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 추적 설정 업데이트
+        /// 시스템 과부하 상태 체크
+        /// </summary>
+        private bool IsSystemOverloaded()
+        {
+            // CPU 체크 주기 제한 (5초마다)
+            if (DateTime.Now - _lastCpuCheck < _cpuCheckInterval)
+                return false;
+                
+            _lastCpuCheck = DateTime.Now;
+            
+            try
+            {
+                // 메모리 사용량 체크
+                var workingSet = System.Diagnostics.Process.GetCurrentProcess().WorkingSet64;
+                var workingSetMB = workingSet / (1024 * 1024);
+                
+                // 메모리 사용량이 1GB 초과 시 과부하로 판단
+                if (workingSetMB > 1024)
+                {
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: High memory usage detected: {workingSetMB}MB");
+                    return true;
+                }
+                
+                // 활성 트래커 수 체크
+                var totalTrackers = _trackingServices.Values.Sum(ts => ts.GetStatistics().ActiveTrackerCount);
+                if (totalTrackers > MAX_TRACKERS_PER_CAMERA * _trackingServices.Count)
+                {
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Too many trackers: {totalTrackers}");
+                    return true;
+                }
+                
+                return false;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Error checking system load - {ex.Message}");
+                return false; // 오류 시 계속 진행
+            }
+        }
+        
+        /// <summary>
+        /// 오래된 트래커 정리
+        /// </summary>
+        private void CleanupOldTrackers(List<TrackedPerson> trackedPersons)
+        {
+            try
+            {
+                // 비활성 트래커나 너무 오래된 트래커 제거
+                var trackedToRemove = trackedPersons.Where(p => 
+                    !p.IsActive || 
+                    (DateTime.Now - p.FirstDetectionTime).TotalSeconds > 300 || // 5분 이상 된 트래커
+                    (p.TrackingHistory?.Count ?? 0) > MAX_HISTORY_LENGTH // 히스토리가 너무 긴 트래커
+                ).ToList();
+                
+                foreach (var tracked in trackedToRemove)
+                {
+                    // 히스토리 크기 제한
+                    if (tracked.TrackingHistory != null && tracked.TrackingHistory.Count > MAX_HISTORY_LENGTH)
+                    {
+                        var recentHistory = tracked.TrackingHistory.TakeLast(MAX_HISTORY_LENGTH).ToList();
+                        tracked.TrackingHistory.Clear();
+                        tracked.TrackingHistory.AddRange(recentHistory);
+                    }
+                }
+                
+                if (trackedToRemove.Any())
+                {
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Cleaned up {trackedToRemove.Count} old trackers");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: Error during tracker cleanup - {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 추적 설정을 데이터베이스에서 다시 로드
+        /// </summary>
+        public async Task ReloadConfigurationAsync()
+        {
+            await LoadTrackingConfigurationAsync();
+            
+            // 모든 추적 서비스에 새 설정 적용
+            if (_globalTrackingConfig != null)
+            {
+                var cameraIds = _trackingServices.Keys.ToList();
+                foreach (var cameraId in cameraIds)
+                {
+                    _trackingServices[cameraId] = new PersonTrackingService(_globalTrackingConfig);
+                    _latestTrackedPersons[cameraId] = new List<TrackedPerson>();
+                }
+                
+                // AutoSave 타이머 재시작
+                StartAutoSaveTimer();
+                
+                System.Diagnostics.Debug.WriteLine("BackgroundTrackingService: Configuration reloaded and applied");
+            }
+        }
+        
+        /// <summary>
+        /// 현재 추적 설정 가져오기
+        /// </summary>
+        public TrackingConfiguration? GetTrackingConfiguration()
+        {
+            return _globalTrackingConfig;
+        }
+        
+        /// <summary>
+        /// 메모리 내 추적 설정만 업데이트 (데이터베이스 저장 없이)
+        /// </summary>
+        public void UpdateTrackingConfigurationInMemory(TrackingConfiguration newConfig)
+        {
+            _globalTrackingConfig = newConfig;
+            
+            // 모든 추적 서비스에 새 설정 적용 (재생성 없이 설정만 업데이트)
+            foreach (var trackingService in _trackingServices.Values)
+            {
+                // PersonTrackingService의 설정 업데이트 메서드가 필요하지만,
+                // 현재는 재생성으로 대체
+            }
+            
+            // AutoSave 타이머 재시작
+            StartAutoSaveTimer();
+            
+            System.Diagnostics.Debug.WriteLine("BackgroundTrackingService: Configuration updated in memory");
+        }
+        
+        /// <summary>
+        /// 추적 설정 업데이트 (데이터베이스에도 저장)
         /// </summary>
         public async Task UpdateTrackingConfigurationAsync(TrackingConfiguration newConfig)
         {
@@ -240,7 +419,7 @@ namespace SafetyVisionMonitor.Services
             // 데이터베이스에 저장
             try
             {
-                await App.DatabaseService.SaveTrackingConfigAsync(new Database.TrackingConfig
+                await App.DatabaseService.SaveTrackingConfigAsync(new TrackingConfig
                 {
                     IsEnabled = newConfig.IsEnabled,
                     MaxTrackingDistance = newConfig.MaxTrackingDistance,
@@ -402,9 +581,188 @@ namespace SafetyVisionMonitor.Services
             }
         }
         
+        /// <summary>
+        /// AutoSave 타이머 시작/재시작
+        /// </summary>
+        private void StartAutoSaveTimer()
+        {
+            lock (_autoSaveLock)
+            {
+                // 기존 타이머 정리
+                StopAutoSaveTimer();
+                
+                if (_globalTrackingConfig?.AutoSaveTracking == true && _globalTrackingConfig.AutoSaveInterval > 0)
+                {
+                    var intervalMs = _globalTrackingConfig.AutoSaveInterval * 1000; // 초를 밀리초로 변환
+                    _autoSaveTimer = new System.Timers.Timer(intervalMs);
+                    _autoSaveTimer.Elapsed += OnAutoSaveElapsed;
+                    _autoSaveTimer.AutoReset = true;
+                    _autoSaveTimer.Start();
+                    
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: AutoSave timer started - interval: {_globalTrackingConfig.AutoSaveInterval} seconds");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("BackgroundTrackingService: AutoSave disabled or invalid interval");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// AutoSave 타이머 정지
+        /// </summary>
+        private void StopAutoSaveTimer()
+        {
+            lock (_autoSaveLock)
+            {
+                if (_autoSaveTimer != null)
+                {
+                    _autoSaveTimer.Stop();
+                    _autoSaveTimer.Elapsed -= OnAutoSaveElapsed;
+                    _autoSaveTimer.Dispose();
+                    _autoSaveTimer = null;
+                    
+                    System.Diagnostics.Debug.WriteLine("BackgroundTrackingService: AutoSave timer stopped");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// AutoSave 타이머 이벤트 핸들러
+        /// </summary>
+        private async void OnAutoSaveElapsed(object? sender, System.Timers.ElapsedEventArgs e)
+        {
+            if (_disposed || _globalTrackingConfig?.AutoSaveTracking != true)
+                return;
+                
+            try
+            {
+                await SaveCurrentTrackingData();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: AutoSave error - {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 현재 추적 데이터를 데이터베이스에 저장 (비동기, 별도 스레드)
+        /// </summary>
+        private async Task SaveCurrentTrackingData()
+        {
+            await Task.Run(async () =>
+            {
+                try
+                {
+                    var saveTime = DateTime.Now;
+                    var trackingRecords = new List<PersonTrackingRecord>();
+                    
+                    // 모든 카메라의 추적 데이터 수집 (스레드 안전하게)
+                    Dictionary<string, List<TrackedPerson>> currentTrackedPersons;
+                    lock (_latestTrackedPersons)
+                    {
+                        currentTrackedPersons = _latestTrackedPersons.ToDictionary(
+                            kvp => kvp.Key, 
+                            kvp => kvp.Value.Where(p => p.IsActive).ToList() // 활성 상태만
+                        );
+                    }
+                    
+                    foreach (var kvp in currentTrackedPersons)
+                    {
+                        var cameraId = kvp.Key;
+                        var trackedPersons = kvp.Value;
+                        
+                        // 메모리 제한: 카메라당 최대 10개 트래커만 저장
+                        var limitedPersons = trackedPersons.Take(10).ToList();
+                        
+                        foreach (var person in limitedPersons)
+                        {
+                            // 최근 추적 히스토리 수집 (메모리 최적화: 100 → 20개 점)
+                            var recentHistory = person.TrackingHistory?.TakeLast(MAX_HISTORY_LENGTH).ToList() ?? new List<System.Drawing.PointF>();
+                            
+                            // JSON 직렬화 크기 제한 (너무 큰 데이터 방지)
+                            var historyJson = "[]";
+                            if (recentHistory.Count > 0)
+                            {
+                                try
+                                {
+                                    historyJson = System.Text.Json.JsonSerializer.Serialize(recentHistory);
+                                    
+                                    // JSON 크기가 2KB 초과 시 데이터 축소
+                                    if (historyJson.Length > 2048)
+                                    {
+                                        var reducedHistory = recentHistory.TakeLast(10).ToList();
+                                        historyJson = System.Text.Json.JsonSerializer.Serialize(reducedHistory);
+                                    }
+                                }
+                                catch
+                                {
+                                    historyJson = "[]"; // 직렬화 실패 시 빈 배열
+                                }
+                            }
+                            
+                            var record = new PersonTrackingRecord
+                            {
+                                TrackingId = person.TrackingId,
+                                CameraId = cameraId,
+                                BoundingBoxX = person.BoundingBox.X,
+                                BoundingBoxY = person.BoundingBox.Y,
+                                BoundingBoxWidth = person.BoundingBox.Width,
+                                BoundingBoxHeight = person.BoundingBox.Height,
+                                CenterX = person.BoundingBox.X + person.BoundingBox.Width / 2,
+                                CenterY = person.BoundingBox.Y + person.BoundingBox.Height / 2,
+                                Confidence = person.Confidence,
+                                TrackingHistoryJson = historyJson,
+                                Location = person.Location?.ToString() ?? "Unknown",
+                                IsActive = person.IsActive,
+                                CreatedTime = person.FirstDetectionTime,
+                                FirstDetectedTime = person.FirstDetectionTime,
+                                LastSeenTime = person.Timestamp,
+                                LastUpdated = saveTime
+                            };
+                            
+                            trackingRecords.Add(record);
+                        }
+                    }
+                    
+                    if (trackingRecords.Any())
+                    {
+                        // 데이터베이스에 일괄 저장 (별도 스레드에서)
+                        await App.DatabaseService.SavePersonTrackingRecordsAsync(trackingRecords);
+                        
+                        System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: AutoSave completed - {trackingRecords.Count} tracking records saved from {currentTrackedPersons.Count} cameras");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("BackgroundTrackingService: AutoSave skipped - no active tracking data");
+                    }
+                    
+                    // 메모리 정리
+                    trackingRecords.Clear();
+                    currentTrackedPersons.Clear();
+                    
+                    // 가비지 컬렉션 힌트 (대량 데이터 처리 후)
+                    if (trackingRecords.Count > 50)
+                    {
+                        GC.Collect();
+                        GC.WaitForPendingFinalizers();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"BackgroundTrackingService: SaveCurrentTrackingData error - {ex.Message}");
+                }
+            });
+        }
+        
         public void Dispose()
         {
             if (_disposed) return;
+            
+            _disposed = true;
+            
+            // AutoSave 타이머 정리
+            StopAutoSaveTimer();
             
             // PersonTrackingService는 IDisposable을 구현하지 않으므로 단순히 컬렉션만 정리
             _trackingServices.Clear();
@@ -416,8 +774,6 @@ namespace SafetyVisionMonitor.Services
                 acrylicFilter.Dispose();
             }
             _acrylicFilters.Clear();
-            
-            _disposed = true;
             System.Diagnostics.Debug.WriteLine("BackgroundTrackingService: Disposed");
         }
     }

@@ -7,7 +7,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services;
 using Rect = OpenCvSharp.Rect;
 
@@ -134,7 +134,7 @@ namespace SafetyVisionMonitor.Services
                     // 검출 결과가 있으면 박스 그리기
                     if (detections != null)
                     {
-                        DrawDetectionBoxes(displayFrame, detections);
+                        DrawDetectionBoxes(displayFrame, detections, trackingConfig);
                     }
 
                     // 렌더링
@@ -186,7 +186,7 @@ namespace SafetyVisionMonitor.Services
         /// <summary>
         /// 검출된 객체에 대한 박스 그리기
         /// </summary>
-        private void DrawDetectionBoxes(Mat frame, IEnumerable<DetectionResult> detections)
+        private void DrawDetectionBoxes(Mat frame, IEnumerable<DetectionResult> detections, TrackingConfiguration? config = null)
         {
             foreach (var detection in detections)
             {
@@ -206,8 +206,8 @@ namespace SafetyVisionMonitor.Services
                 // 박스 그리기
                 Cv2.Rectangle(frame, rect, color, 2);
 
-                // 라벨 텍스트 (트래킹 ID 포함)
-                var label = detection.TrackingId.HasValue 
+                // 라벨 텍스트 (트래킹 ID 포함 - 설정에 따라)
+                var label = detection.TrackingId.HasValue && (config?.ShowTrackingId ?? true)
                     ? $"{detection.ClassName} ID:{detection.TrackingId} ({detection.Confidence:P0})"
                     : $"{detection.ClassName} ({detection.Confidence:P0})";
                 

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using OpenCvSharp;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services;
 
 namespace SafetyVisionMonitor.Services
@@ -346,14 +346,37 @@ namespace SafetyVisionMonitor.Services
             _maxLengthSeconds = maxLengthSeconds;
             _startTime = DateTime.Now;
 
-            // H.264 코덱으로 MP4 파일 생성
-            var fourcc = VideoWriter.FourCC('H', '2', '6', '4');
-            _writer = new VideoWriter(_filePath, fourcc, 15.0, new Size(640, 480)); // 15 FPS
-
-            if (!_writer.IsOpened())
+            // H.264 코덱으로 MP4 파일 생성 (OpenH264 라이브러리 사용)
+            // 여러 코덱을 시도하여 호환성 향상
+            VideoWriter? writer = null;
+            var codecs = new[]
             {
-                throw new InvalidOperationException($"Failed to create video writer for {filePath}");
+                VideoWriter.FourCC('a', 'v', 'c', '1'), // AVC1 (H.264, MP4 호환)
+                VideoWriter.FourCC('H', '2', '6', '4'), // H264
+                VideoWriter.FourCC('X', 'V', 'I', 'D'), // XVID (fallback)
+                VideoWriter.FourCC('M', 'J', 'P', 'G')  // MJPEG (fallback)
+            };
+
+            foreach (var fourcc in codecs)
+            {
+                try
+                {
+                    writer = new VideoWriter(_filePath, fourcc, 15.0, new Size(640, 480));
+                    if (writer.IsOpened())
+                    {
+                        System.Diagnostics.Debug.WriteLine($"VideoRecorder: Using codec {fourcc:X8} for {_filePath}");
+                        break;
+                    }
+                    writer.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"VideoRecorder: Failed to create writer with codec {fourcc:X8}: {ex.Message}");
+                    writer?.Dispose();
+                }
             }
+
+            _writer = writer ?? throw new InvalidOperationException($"Failed to create video writer for {filePath} with any codec");
         }
 
         public void AddFrame(Mat frame)

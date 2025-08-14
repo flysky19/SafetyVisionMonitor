@@ -2,6 +2,12 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SafetyVisionMonitor", "SafetyVisionMonitor\SafetyVisionMonitor.csproj", "{6570A74A-C0AC-4C23-9ED8-B3FB0933FC0E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SafetyVisionMonitor.Shared", "SafetyVisionMonitor.Shared\SafetyVisionMonitor.Shared.csproj", "{121020C6-4932-452A-A59B-D4C049C305D0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SafetyVisionHistoryViewer", "SafetyVisionHistoryViewer\SafetyVisionHistoryViewer.csproj", "{04D3D570-A2F2-4B3A-ADF9-CC37B33E7BB0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SafetyVisionAIManager", "SafetyVisionAIManager\SafetyVisionAIManager.csproj", "{E3EACFC9-D4EB-4153-B37E-7285744BC305}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +18,17 @@ Global
 		{6570A74A-C0AC-4C23-9ED8-B3FB0933FC0E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6570A74A-C0AC-4C23-9ED8-B3FB0933FC0E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{6570A74A-C0AC-4C23-9ED8-B3FB0933FC0E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{121020C6-4932-452A-A59B-D4C049C305D0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{121020C6-4932-452A-A59B-D4C049C305D0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{121020C6-4932-452A-A59B-D4C049C305D0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{121020C6-4932-452A-A59B-D4C049C305D0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{04D3D570-A2F2-4B3A-ADF9-CC37B33E7BB0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{04D3D570-A2F2-4B3A-ADF9-CC37B33E7BB0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{04D3D570-A2F2-4B3A-ADF9-CC37B33E7BB0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{04D3D570-A2F2-4B3A-ADF9-CC37B33E7BB0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E3EACFC9-D4EB-4153-B37E-7285744BC305}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E3EACFC9-D4EB-4153-B37E-7285744BC305}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E3EACFC9-D4EB-4153-B37E-7285744BC305}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E3EACFC9-D4EB-4153-B37E-7285744BC305}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

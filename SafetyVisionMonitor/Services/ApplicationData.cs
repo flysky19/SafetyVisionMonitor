@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
-using SafetyVisionMonitor.Database;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Database;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services
 {
@@ -14,7 +14,7 @@ namespace SafetyVisionMonitor.Services
         public ObservableCollection<Camera> Cameras { get; }
         
         // AI 모델 설정
-        public ObservableCollection<Database.AIModelConfig> AIModels { get; }
+        public ObservableCollection<AIModelConfig> AIModels { get; }
         
         // 3D 구역 설정
         public ObservableCollection<Zone3DConfig> Zones { get; }
@@ -31,7 +31,7 @@ namespace SafetyVisionMonitor.Services
         public ApplicationData()
         {
             Cameras = new ObservableCollection<Camera>();
-            AIModels = new ObservableCollection<Database.AIModelConfig>();
+            AIModels = new ObservableCollection<AIModelConfig>();
             Zones = new ObservableCollection<Zone3DConfig>();
             RecentEvents = new ObservableCollection<SafetyEvent>();
         }

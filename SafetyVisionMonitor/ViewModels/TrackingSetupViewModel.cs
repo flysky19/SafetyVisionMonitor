@@ -6,10 +6,10 @@ using System.Linq;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Shared.ViewModels.Base;
 using SafetyVisionMonitor.Services;
-using SafetyVisionMonitor.Database;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Database;
+using SafetyVisionMonitor.Shared.Models;
 using Microsoft.Win32;
 
 namespace SafetyVisionMonitor.ViewModels
@@ -38,13 +38,74 @@ namespace SafetyVisionMonitor.ViewModels
         private bool enableMultiCameraTracking = true;
         
         [ObservableProperty]
-        private int trackHistoryLength = 50;
+        private int trackHistoryLength = 20; // 성능 최적화: 50 → 20
         
         [ObservableProperty]
         private bool showTrackingId = true;
         
         [ObservableProperty]
         private bool showTrackingPath = true;
+        
+        partial void OnShowTrackingIdChanged(bool value)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await UpdateTrackingConfigurationInMemory();
+                    System.Diagnostics.Debug.WriteLine($"ShowTrackingId changed to: {value}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to update ShowTrackingId: {ex.Message}");
+                }
+            });
+        }
+        
+        partial void OnShowTrackingPathChanged(bool value)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await UpdateTrackingConfigurationInMemory();
+                    System.Diagnostics.Debug.WriteLine($"ShowTrackingPath changed to: {value}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to update ShowTrackingPath: {ex.Message}");
+                }
+            });
+        }
+        
+        /// <summary>
+        /// 메모리 내 추적 설정만 업데이트 (데이터베이스 저장 없이)
+        /// </summary>
+        private async Task UpdateTrackingConfigurationInMemory()
+        {
+            if (App.TrackingService != null)
+            {
+                var config = new TrackingConfiguration
+                {
+                    IsEnabled = IsTrackingEnabled,
+                    MaxTrackingDistance = MaxTrackingDistance,
+                    MaxDisappearFrames = MaxDisappearFrames,
+                    IouThreshold = (float)IouThreshold,
+                    SimilarityThreshold = (float)SimilarityThreshold,
+                    EnableReIdentification = EnableReIdentification,
+                    EnableMultiCameraTracking = EnableMultiCameraTracking,
+                    TrackHistoryLength = TrackHistoryLength,
+                    ShowTrackingId = ShowTrackingId,
+                    ShowTrackingPath = ShowTrackingPath,
+                    PathDisplayLength = PathDisplayLength,
+                    AutoSaveTracking = AutoSaveTracking,
+                    AutoSaveInterval = AutoSaveInterval,
+                    TrackingMethod = SelectedTrackingMethod
+                };
+                
+                await App.TrackingService.UpdateTrackingConfigurationAsync(config);
+            }
+        }
         
         [ObservableProperty]
         private int pathDisplayLength = 20;
@@ -56,13 +117,13 @@ namespace SafetyVisionMonitor.ViewModels
         private ObservableCollection<string> trackingMethods;
         
         [ObservableProperty]
-        private string selectedTrackingMethod = "DeepSORT";
+        private string selectedTrackingMethod = "SORT"; // 성능 최적화: DeepSORT → SORT
         
         [ObservableProperty]
         private bool autoSaveTracking = true;
         
         [ObservableProperty]
-        private int autoSaveInterval = 60;
+        private int autoSaveInterval = 300; // 성능 최적화: 60초 → 300초 (5분)
         
         public TrackingSetupViewModel()
         {
@@ -198,6 +259,12 @@ namespace SafetyVisionMonitor.ViewModels
                 
                 await App.DatabaseService.SaveTrackingZonesAsync(zoneConfigs);
                 
+                // BackgroundTrackingService에 설정 변경 알림
+                if (App.TrackingService != null)
+                {
+                    await App.TrackingService.ReloadConfigurationAsync();
+                }
+                
                 MessageBox.Show("트래킹 설정이 저장되었습니다.", "저장 완료",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                     
@@ -222,20 +289,20 @@ namespace SafetyVisionMonitor.ViewModels
                 
             if (result == MessageBoxResult.Yes)
             {
-                // 기본값으로 초기화
+                // 기본값으로 초기화 (성능 최적화)
                 MaxTrackingDistance = 50;
                 MaxDisappearFrames = 30;
                 IouThreshold = 0.3;
                 SimilarityThreshold = 0.7;
-                EnableReIdentification = true;
-                EnableMultiCameraTracking = true;
-                TrackHistoryLength = 50;
+                EnableReIdentification = false; // 성능 최적화: true → false
+                EnableMultiCameraTracking = false; // 성능 최적화: true → false
+                TrackHistoryLength = 20; // 성능 최적화: 50 → 20
                 ShowTrackingId = true;
                 ShowTrackingPath = true;
                 PathDisplayLength = 20;
-                SelectedTrackingMethod = "DeepSORT";
+                SelectedTrackingMethod = "SORT"; // 성능 최적화: DeepSORT → SORT
                 AutoSaveTracking = true;
-                AutoSaveInterval = 60;
+                AutoSaveInterval = 300; // 성능 최적화: 60 → 300초
                 
                 StatusMessage = "설정이 기본값으로 초기화되었습니다.";
             }

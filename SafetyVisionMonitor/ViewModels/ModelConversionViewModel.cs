@@ -7,7 +7,7 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
-using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Shared.ViewModels.Base;
 
 namespace SafetyVisionMonitor.ViewModels
 {

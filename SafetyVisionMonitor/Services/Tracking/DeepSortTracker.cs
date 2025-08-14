@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services.Tracking
 {
@@ -176,6 +176,7 @@ namespace SafetyVisionMonitor.Services.Tracking
                 Confidence = tracker.Confidence,
                 CameraId = cameraId,
                 Timestamp = DateTime.Now,
+                FirstDetectionTime = tracker.CreatedTime,
                 TrackingHistory = tracker.GetHistory().ToList(),
                 IsActive = tracker.IsActive,
                 FramesSinceUpdate = tracker.FramesSinceUpdate

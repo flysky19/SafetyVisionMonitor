@@ -1,0 +1,271 @@
+<UserControl x:Class="SafetyVisionAIManager.Views.ModelConversionView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="800"
+             Background="{DynamicResource BackgroundBrush}">
+
+    <UserControl.Resources>
+        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Margin" Value="0,10,0,5"/>
+        </Style>
+        
+        <Style x:Key="InfoTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 헤더 -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="YOLO 모델 변환" 
+                       FontSize="24" 
+                       FontWeight="Bold" 
+                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+            <TextBlock Text="PyTorch (.pt) 파일을 ONNX (.onnx) 포맷으로 변환합니다" 
+                       Style="{StaticResource InfoTextStyle}"/>
+        </StackPanel>
+
+        <!-- 메인 콘텐츠 -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                
+                <!-- 입력 파일 선택 -->
+                <Border Background="{DynamicResource CardBackgroundBrush}" 
+                        CornerRadius="8" 
+                        Padding="20" 
+                        Margin="0,0,0,15">
+                    <StackPanel>
+                        <TextBlock Text="입력 파일 (.pt)" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock Text="변환할 PyTorch 모델 파일을 선택하세요" Style="{StaticResource InfoTextStyle}"/>
+                        
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <TextBox Grid.Column="0" 
+                                     Text="{Binding InputFilePath, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="0,0,10,0"
+                                     Height="35"
+                                     VerticalContentAlignment="Center"
+                                     Padding="10,0"
+                                     Background="{DynamicResource InputBackgroundBrush}"
+                                     BorderBrush="{DynamicResource BorderBrush}"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                     IsReadOnly="True"/>
+                            
+                            <Button Grid.Column="1" 
+                                    Content="찾아보기" 
+                                    Command="{Binding BrowseInputFileCommand}"
+                                    Width="100" 
+                                    Height="35"
+                                    Style="{DynamicResource SecondaryButtonStyle}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 출력 파일 설정 -->
+                <Border Background="{DynamicResource CardBackgroundBrush}" 
+                        CornerRadius="8" 
+                        Padding="20" 
+                        Margin="0,0,0,15">
+                    <StackPanel>
+                        <TextBlock Text="출력 파일 (.onnx)" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock Text="변환된 ONNX 파일이 저장될 위치를 지정하세요" Style="{StaticResource InfoTextStyle}"/>
+                        
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            
+                            <TextBox Grid.Column="0" 
+                                     Text="{Binding OutputFilePath, UpdateSourceTrigger=PropertyChanged}"
+                                     Margin="0,0,10,0"
+                                     Height="35"
+                                     VerticalContentAlignment="Center"
+                                     Padding="10,0"
+                                     Background="{DynamicResource InputBackgroundBrush}"
+                                     BorderBrush="{DynamicResource BorderBrush}"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            
+                            <Button Grid.Column="1" 
+                                    Content="찾아보기" 
+                                    Command="{Binding BrowseOutputFileCommand}"
+                                    Width="100" 
+                                    Height="35"
+                                    Style="{DynamicResource SecondaryButtonStyle}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 변환 옵션 -->
+                <Border Background="{DynamicResource CardBackgroundBrush}" 
+                        CornerRadius="8" 
+                        Padding="20" 
+                        Margin="0,0,0,15">
+                    <StackPanel>
+                        <TextBlock Text="변환 옵션" Style="{StaticResource SectionHeaderStyle}"/>
+                        
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- 입력 크기 -->
+                            <TextBlock Grid.Row="0" Grid.Column="0" 
+                                       Text="입력 크기:" 
+                                       VerticalAlignment="Center" 
+                                       Margin="0,5,10,5"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <ComboBox Grid.Row="0" Grid.Column="1" 
+                                      SelectedItem="{Binding SelectedInputSize}"
+                                      Margin="0,5,20,5"
+                                      Height="30"
+                                      Background="{DynamicResource InputBackgroundBrush}"
+                                      BorderBrush="{DynamicResource BorderBrush}"
+                                      Foreground="{DynamicResource PrimaryTextBrush}">
+                                <ComboBoxItem Content="640x640 (기본)"/>
+                                <ComboBoxItem Content="416x416"/>
+                                <ComboBoxItem Content="512x512"/>
+                                <ComboBoxItem Content="1024x1024"/>
+                            </ComboBox>
+
+                            <!-- 배치 크기 -->
+                            <TextBlock Grid.Row="0" Grid.Column="2" 
+                                       Text="배치 크기:" 
+                                       VerticalAlignment="Center" 
+                                       Margin="0,5,10,5"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+                            <syncfusion:IntegerTextBox Grid.Row="0" Grid.Column="3" 
+                                                       Value="{Binding BatchSize}"
+                                                       MinValue="1" 
+                                                       MaxValue="32"
+                                                       Margin="0,5"
+                                                       Height="30"
+                                                       Background="{DynamicResource InputBackgroundBrush}"
+                                                       BorderBrush="{DynamicResource BorderBrush}"
+                                                       Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                            <!-- 최적화 옵션 -->
+                            <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,10,0,5">
+                                <CheckBox Content="동적 축 사용 (Dynamic Axes)" 
+                                          IsChecked="{Binding UseDynamicAxes}"
+                                          IsEnabled="False"
+                                          Foreground="{DynamicResource PrimaryTextBrush}"/>
+                                <TextBlock Text="⚠️ YoloDotNet은 동적 축을 지원하지 않습니다" 
+                                           FontSize="11" 
+                                           Foreground="Orange" 
+                                           Margin="20,2,0,0"/>
+                            </StackPanel>
+                            
+                            <CheckBox Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="2"
+                                      Content="최적화 적용" 
+                                      IsChecked="{Binding ApplyOptimization}"
+                                      Margin="0,10,0,5"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"/>
+
+                            <CheckBox Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
+                                      Content="FP16 정밀도 사용 (더 작은 파일 크기)" 
+                                      IsChecked="{Binding UseFP16}"
+                                      Margin="0,5,0,10"
+                                      Foreground="{DynamicResource PrimaryTextBrush}"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- 변환 진행률 -->
+                <Border Background="{DynamicResource CardBackgroundBrush}" 
+                        CornerRadius="8" 
+                        Padding="20" 
+                        Margin="0,0,0,15"
+                        Visibility="{Binding IsConverting, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel>
+                        <TextBlock Text="변환 진행률" Style="{StaticResource SectionHeaderStyle}"/>
+                        <ProgressBar Value="{Binding ConversionProgress}" 
+                                     Maximum="100" 
+                                     Height="10" 
+                                     Margin="0,5,0,10"
+                                     Background="{DynamicResource ProgressBackgroundBrush}"
+                                     Foreground="{DynamicResource AccentBrush}"/>
+                        <TextBlock Text="{Binding ConversionStatus}" 
+                                   Style="{StaticResource InfoTextStyle}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- 로그 출력 -->
+                <Border Background="{DynamicResource CardBackgroundBrush}" 
+                        CornerRadius="8" 
+                        Padding="20" 
+                        Margin="0,0,0,15">
+                    <StackPanel>
+                        <TextBlock Text="변환 로그" Style="{StaticResource SectionHeaderStyle}"/>
+                        <ScrollViewer Height="200" 
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      Background="{DynamicResource LogBackgroundBrush}"
+                                      BorderBrush="{DynamicResource BorderBrush}"
+                                      BorderThickness="1">
+                            <TextBox Text="{Binding ConversionLog, Mode=OneWay}"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     IsReadOnly="True"
+                                     TextWrapping="Wrap"
+                                     FontFamily="Consolas"
+                                     FontSize="11"
+                                     Foreground="{DynamicResource PrimaryTextBrush}"
+                                     Padding="10"/>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- 하단 버튼 -->
+        <StackPanel Grid.Row="2" 
+                    Orientation="Horizontal" 
+                    HorizontalAlignment="Right" 
+                    Margin="0,20,0,0">
+            <Button Content="변환하기" 
+                    Command="{Binding ConvertModelCommand}"
+                    IsEnabled="{Binding CanConvert}"
+                    Width="120" 
+                    Height="40" 
+                    Margin="0,0,10,0"
+                    Style="{DynamicResource PrimaryButtonStyle}"/>
+            <Button Content="취소" 
+                    Command="{Binding CancelConversionCommand}"
+                    IsEnabled="{Binding IsConverting}"
+                    Width="100" 
+                    Height="40" 
+                    Style="{DynamicResource SecondaryButtonStyle}"/>
+        </StackPanel>
+
+    </Grid>
+</UserControl>

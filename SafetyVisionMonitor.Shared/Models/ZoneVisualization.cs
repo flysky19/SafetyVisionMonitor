@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace SafetyVisionMonitor.Models
+namespace SafetyVisionMonitor.Shared.Models
 {
     public class ZoneVisualization : ObservableObject
     {

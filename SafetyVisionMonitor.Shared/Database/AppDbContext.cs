@@ -1,9 +1,9 @@
 ﻿using System;
 using System.IO;
 using Microsoft.EntityFrameworkCore;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 
-namespace SafetyVisionMonitor.Database
+namespace SafetyVisionMonitor.Shared.Database
 {
     public class AppDbContext : DbContext
     {
@@ -104,17 +104,17 @@ namespace SafetyVisionMonitor.Database
         public double CalibrationFrameHeight { get; set; } = 480.0;
     }
     
-    // 사람 추적 기록
-    public class PersonTrackingRecord
-    {
-        public int Id { get; set; }
-        public string GlobalTrackingId { get; set; } = string.Empty;
-        public DateTime FirstDetectedTime { get; set; }
-        public DateTime LastSeenTime { get; set; }
-        public string CameraHistory { get; set; } = string.Empty; // JSON 배열
-        public int TotalDetectionCount { get; set; }
-        public string EventSummary { get; set; } = string.Empty; // JSON
-    }
+    // // 사람 추적 기록
+    // public class PersonTrackingRecord
+    // {
+    //     public int Id { get; set; }
+    //     public string GlobalTrackingId { get; set; } = string.Empty;
+    //     public DateTime FirstDetectedTime { get; set; }
+    //     public DateTime LastSeenTime { get; set; }
+    //     public string CameraHistory { get; set; } = string.Empty; // JSON 배열
+    //     public int TotalDetectionCount { get; set; }
+    //     public string EventSummary { get; set; } = string.Empty; // JSON
+    // }
     
     // AI 모델 설정
     public class AIModelConfig

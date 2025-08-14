@@ -10,8 +10,8 @@ using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using OpenCvSharp;
-using SafetyVisionMonitor.Models;
-using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Shared.Models;
+using SafetyVisionMonitor.Shared.ViewModels.Base;
 using SafetyVisionMonitor.Services;
 using Point = System.Windows.Point;
 

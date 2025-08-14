@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Threading.Tasks;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services.Handlers;
+using SafetyVisionMonitor.Shared.Services;
 
 namespace SafetyVisionMonitor.Services
 {
@@ -77,7 +78,7 @@ namespace SafetyVisionMonitor.Services
         /// <summary>
         /// 검출된 객체들에 대해 안전 검사 수행
         /// </summary>
-        public async Task<SafetyCheckResult> CheckSafetyAsync(string cameraId, Models.DetectionResult[] detections)
+        public async Task<SafetyCheckResult> CheckSafetyAsync(string cameraId, DetectionResult[] detections)
         {
             if (detections.Length == 0 || !_cameraZones.ContainsKey(cameraId))
             {
@@ -161,7 +162,7 @@ namespace SafetyVisionMonitor.Services
         /// 사람이 특정 구역 안에 있는지 검사하고 감지된 신체 부위 반환 (발, 손, 몸 전체 포함)
         /// </summary>
         /// <returns>감지된 신체 부위 이름, 없으면 빈 문자열</returns>
-        private string GetPersonInZone(Models.DetectionResult detection, Zone3D zone)
+        private string GetPersonInZone(DetectionResult detection, Zone3D zone)
         {
             if (zone.FloorPoints.Count < 3)
                 return string.Empty;
@@ -351,7 +352,7 @@ namespace SafetyVisionMonitor.Services
         /// <summary>
         /// 구역에서 퇴장한 사람들 정리 (주기적 호출 필요)
         /// </summary>
-        private void CleanupZoneStates(string cameraId, Models.DetectionResult[] currentDetections)
+        private void CleanupZoneStates(string cameraId, DetectionResult[] currentDetections)
         {
             var currentTrackingIds = currentDetections
                 .Where(d => d.TrackingId.HasValue)
@@ -543,8 +544,8 @@ namespace SafetyVisionMonitor.Services
     {
         public string CameraId { get; set; } = string.Empty;
         public List<ZoneViolation> Violations { get; set; } = new();
-        public List<Models.DetectionResult> ViolatingPersons { get; set; } = new();
-        public List<Models.DetectionResult> SafePersons { get; set; } = new();
+        public List<DetectionResult> ViolatingPersons { get; set; } = new();
+        public List<DetectionResult> SafePersons { get; set; } = new();
         
         public bool HasViolations => Violations.Count > 0;
         public int TotalPersons => ViolatingPersons.Count + SafePersons.Count;
@@ -555,7 +556,7 @@ namespace SafetyVisionMonitor.Services
     /// </summary>
     public class ZoneViolation
     {
-        public Models.DetectionResult Detection { get; set; } = new();
+        public DetectionResult Detection { get; set; } = new();
         public Zone3D Zone { get; set; } = new();
         public ViolationType ViolationType { get; set; }
         public DateTime Timestamp { get; set; }

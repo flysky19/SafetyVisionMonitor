@@ -6,7 +6,16 @@
       "Bash(dotnet build:*)",
       "Bash(rg:*)",
       "Bash(grep:*)",
-      "Bash(msbuild:*)"
+      "Bash(msbuild:*)",
+      "Bash(cp:*)",
+      "Bash(diff:*)",
+      "Bash(rm:*)",
+      "Bash(for:*)",
+      "Bash(do)",
+      "Bash(sed:*)",
+      "Bash(done)",
+      "Bash(ls:*)",
+      "Bash(find:*)"
     ],
     "deny": []
   }

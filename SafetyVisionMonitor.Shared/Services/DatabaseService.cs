@@ -4,14 +4,14 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
-using SafetyVisionMonitor.Database;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Database;
+using SafetyVisionMonitor.Shared.Models;
 using System.Text.Json;
 using System.Windows.Media;
 
-namespace SafetyVisionMonitor.Services
+namespace SafetyVisionMonitor.Shared.Services
 {
-    public class DatabaseService
+    public class DatabaseService : IZoneDatabaseService
     {
         public DatabaseService()
         {
@@ -869,6 +869,89 @@ namespace SafetyVisionMonitor.Services
                 System.Diagnostics.Debug.WriteLine($"Failed to load tracking config: {ex.Message}");
                 return null;
             }
+        }
+        
+        /// <summary>
+        /// 추적 데이터 일괄 저장
+        /// </summary>
+        public async Task SavePersonTrackingRecordsAsync(List<PersonTrackingRecord> records)
+        {
+            if (!records.Any()) return;
+            
+            using var context = new AppDbContext();
+            
+            try
+            {
+                // 기존 레코드 중복 제거 (같은 TrackingId, CameraId, 시간대)
+                var recordGroups = records.GroupBy(r => new { r.TrackingId, r.CameraId });
+                
+                foreach (var group in recordGroups)
+                {
+                    // 최신 레코드만 저장 (동일한 추적 ID의 경우)
+                    var latestRecord = group.OrderByDescending(r => r.LastUpdated).First();
+                    
+                    // 기존 레코드 확인 (같은 TrackingId + CameraId)
+                    var existing = await context.PersonTrackingRecords
+                        .FirstOrDefaultAsync(r => r.TrackingId == latestRecord.TrackingId && 
+                                                 r.CameraId == latestRecord.CameraId);
+                    
+                    if (existing != null)
+                    {
+                        // 기존 레코드 업데이트
+                        existing.BoundingBoxX = latestRecord.BoundingBoxX;
+                        existing.BoundingBoxY = latestRecord.BoundingBoxY;
+                        existing.BoundingBoxWidth = latestRecord.BoundingBoxWidth;
+                        existing.BoundingBoxHeight = latestRecord.BoundingBoxHeight;
+                        existing.CenterX = latestRecord.CenterX;
+                        existing.CenterY = latestRecord.CenterY;
+                        existing.Confidence = latestRecord.Confidence;
+                        existing.TrackingHistoryJson = latestRecord.TrackingHistoryJson;
+                        existing.Location = latestRecord.Location;
+                        existing.IsActive = latestRecord.IsActive;
+                        existing.LastUpdated = latestRecord.LastUpdated;
+                    }
+                    else
+                    {
+                        // 새 레코드 추가
+                        context.PersonTrackingRecords.Add(latestRecord);
+                    }
+                }
+                
+                await context.SaveChangesAsync();
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Saved {records.Count} tracking records");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Failed to save tracking records - {ex.Message}");
+                throw;
+            }
+        }
+        
+        /// <summary>
+        /// 추적 데이터 조회 (최근 N개)
+        /// </summary>
+        public async Task<List<PersonTrackingRecord>> LoadPersonTrackingRecordsAsync(int limit = 1000)
+        {
+            using var context = new AppDbContext();
+            
+            return await context.PersonTrackingRecords
+                .OrderByDescending(r => r.LastUpdated)
+                .Take(limit)
+                .ToListAsync();
+        }
+        
+        /// <summary>
+        /// 특정 카메라의 추적 데이터 조회
+        /// </summary>
+        public async Task<List<PersonTrackingRecord>> LoadPersonTrackingRecordsByCameraAsync(string cameraId, int limit = 500)
+        {
+            using var context = new AppDbContext();
+            
+            return await context.PersonTrackingRecords
+                .Where(r => r.CameraId == cameraId)
+                .OrderByDescending(r => r.LastUpdated)
+                .Take(limit)
+                .ToListAsync();
         }
         
         // 추적 구역 저장

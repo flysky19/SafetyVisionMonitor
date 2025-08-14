@@ -2,7 +2,7 @@
 using System.Windows.Controls;
 using SafetyVisionMonitor.ViewModels;
 using System.Linq;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Views
 {

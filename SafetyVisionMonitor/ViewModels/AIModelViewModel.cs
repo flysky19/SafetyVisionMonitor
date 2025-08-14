@@ -9,9 +9,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using OpenCvSharp;
-using SafetyVisionMonitor.AI;
-using SafetyVisionMonitor.Models;
-using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Services;
+using SafetyVisionMonitor.Shared.Database;
+using SafetyVisionMonitor.Shared.Models;
+using SafetyVisionMonitor.Shared.ViewModels.Base;
 using YoloDotNet;
 using YoloDotNet.Models;
 
@@ -155,7 +156,7 @@ namespace SafetyVisionMonitor.ViewModels
                     SelectedModel = newModel;
                     
                     // 데이터베이스에 저장
-                    var modelConfig = new Database.AIModelConfig
+                    var modelConfig = new AIModelConfig
                     {
                         ModelName = newModel.Name,
                         ModelVersion = newModel.Version,
@@ -169,7 +170,7 @@ namespace SafetyVisionMonitor.ViewModels
                         ConfigJson = "{}"
                     };
                     
-                    await App.DatabaseService.SaveAIModelConfigsAsync(new List<Database.AIModelConfig> { modelConfig });
+                    await App.DatabaseService.SaveAIModelConfigsAsync(new List<AIModelConfig> { modelConfig });
                     
                     StatusMessage = $"모델 '{modelName}'이(가) 추가되었습니다.";
                 }
@@ -247,7 +248,7 @@ namespace SafetyVisionMonitor.ViewModels
                 model.Status = ModelStatus.Loading;
                 
                 // 실제 AI 서비스를 통한 모델 로드
-                var aiModel = new Models.AIModel
+                var aiModel = new AIModel
                 {
                     Id = model.Id,
                     Name = model.Name,

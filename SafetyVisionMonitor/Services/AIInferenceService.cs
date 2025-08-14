@@ -5,8 +5,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
-using SafetyVisionMonitor.AI;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Services;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services
 {

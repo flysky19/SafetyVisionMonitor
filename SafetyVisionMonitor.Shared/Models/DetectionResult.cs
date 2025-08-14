@@ -1,7 +1,7 @@
 using System;
 using System.Drawing;
 
-namespace SafetyVisionMonitor.Models
+namespace SafetyVisionMonitor.Shared.Models
 {
     /// <summary>
     /// 사람의 아크릴 영역 내 위치

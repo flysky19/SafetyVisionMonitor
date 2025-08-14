@@ -6,8 +6,8 @@ using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using SafetyVisionMonitor.Models;
-using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Shared.Models;
+using SafetyVisionMonitor.Shared.ViewModels.Base;
 
 namespace SafetyVisionMonitor.ViewModels
 {

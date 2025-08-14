@@ -1,12 +1,13 @@
-﻿using System.Configuration;
-using System.Data;
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using Microsoft.Extensions.Configuration;
-using SafetyVisionMonitor.Database;
+using SafetyVisionMonitor.Shared.Database;
 using SafetyVisionMonitor.Services;
+using SafetyVisionMonitor.Shared.Services;
+using DatabaseServiceShared = SafetyVisionMonitor.Shared.Services.DatabaseService;
 using SafetyVisionMonitor.ViewModels;
 using SafetyVisionMonitor.Views;
+using SafetyVisionMonitor.Shared.Models;
 using System.Runtime.InteropServices;
 
 namespace SafetyVisionMonitor;
@@ -14,15 +15,14 @@ namespace SafetyVisionMonitor;
 /// <summary>
 /// Interaction logic for App.xaml
 /// </summary>
-public partial class App : Application
+public partial class App
 {
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool SetDllDirectory(string lpPathName);
     
-
     public static IConfiguration Configuration { get; private set; } = null!;
     public static CameraService CameraService { get; private set; } = null!;
-    public static DatabaseService DatabaseService { get; private set; } = null!;
+    public static DatabaseServiceShared DatabaseService { get; private set; } = null!;
     public static MonitoringService MonitoringService { get; private set; } = null!;
     public static ApplicationData AppData { get; private set; } = null!;
 
@@ -36,6 +36,7 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs e)
     {
         ConfigureCudaEnvironment();
+        ConfigureOpenCVEnvironment();
 
         // 스플래시 화면 표시 (선택사항)
         var splash = new SplashWindow();
@@ -56,7 +57,11 @@ public partial class App : Application
             }
 
             // 서비스 초기화
-            DatabaseService = new DatabaseService();
+            DatabaseService = new DatabaseServiceShared();
+            
+            // Zone3D 서비스 의존성 주입
+            Zone3D.DatabaseService = DatabaseService as IZoneDatabaseService;
+            Zone3D.NotificationService = new ZoneNotificationService();
 
             // AI 서비스 초기화 (CameraService보다 먼저)
             splash.UpdateStatus("AI 서비스 초기화 중...");
@@ -141,6 +146,26 @@ public partial class App : Application
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Error configuring CUDA: {ex.Message}");
+        }
+    }
+
+    private void ConfigureOpenCVEnvironment()
+    {
+        try
+        {
+            // OpenCV 로그 레벨을 Error로 설정하여 불필요한 경고 메시지 줄이기
+            OpenCvSharp.Cv2.SetLogLevel(OpenCvSharp.LogLevel.ERROR);
+            
+            // OpenCV 백엔드 환경 변수 설정
+            Environment.SetEnvironmentVariable("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;udp");
+            Environment.SetEnvironmentVariable("OPENCV_VIDEOIO_PRIORITY_MSMF", "0"); // MSMF 우선순위 낮춤
+            Environment.SetEnvironmentVariable("OPENCV_VIDEOIO_PRIORITY_DSHOW", "1000"); // DirectShow 우선순위 높임
+            
+            System.Diagnostics.Debug.WriteLine("OpenCV environment configured successfully");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Error configuring OpenCV environment: {ex.Message}");
         }
     }
 

@@ -7,7 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.ViewModels;
 using Syncfusion.Windows.Shared;
 
@@ -20,7 +20,7 @@ namespace SafetyVisionMonitor.Views
         private int _retryCount = 0;
         private const int MAX_RETRY_COUNT = 5;
         
-        public TrackingZoneEditDialog(TrackingZone zone, List<Models.Camera> cameras)
+        public TrackingZoneEditDialog(TrackingZone zone, List<Camera> cameras)
         {
             InitializeComponent();
             _viewModel = new TrackingZoneEditDialogViewModel(zone, cameras);

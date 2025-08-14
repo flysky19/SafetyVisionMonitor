@@ -1,6 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace SafetyVisionMonitor.Models
+namespace SafetyVisionMonitor.Shared.Models
 {
     public partial class Camera : ObservableObject
     {

@@ -7,9 +7,9 @@ namespace SafetyVisionMonitor.Views
     public partial class CameraConfigDialog : Window
     {
         public CameraConfigDialogViewModel ViewModel { get; }
-        private readonly Models.Camera _originalCamera;
+        private readonly SafetyVisionMonitor.Shared.Models.Camera _originalCamera;
         
-        public CameraConfigDialog(Models.Camera camera)
+        public CameraConfigDialog(SafetyVisionMonitor.Shared.Models.Camera camera)
         {
             InitializeComponent();
             _originalCamera = camera;

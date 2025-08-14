@@ -12,10 +12,10 @@ using OpenCvSharp;
 using OpenCvSharp.WpfExtensions;
 using Point = OpenCvSharp.Point;
 using SafetyVisionMonitor.Helpers;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services;
 using SafetyVisionMonitor.Views;
-using SafetyVisionMonitor.ViewModels.Base;
+using SafetyVisionMonitor.Shared.ViewModels.Base;
 
 namespace SafetyVisionMonitor.ViewModels
 {

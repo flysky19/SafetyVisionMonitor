@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Drawing;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services.Tracking
 {

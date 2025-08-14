@@ -1,6 +1,6 @@
 using System;
 using System.Threading.Tasks;
-using SafetyVisionMonitor.Models;
+using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Services;
 
 namespace SafetyVisionMonitor.Services.Handlers

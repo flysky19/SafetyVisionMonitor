@@ -5,7 +5,7 @@ using System.Drawing;
 using System.Runtime.CompilerServices;
 using CommunityToolkit.Mvvm.ComponentModel;
 
-namespace SafetyVisionMonitor.Models
+namespace SafetyVisionMonitor.Shared.Models
 {
     public partial class TrackingZone : ObservableObject
     {
