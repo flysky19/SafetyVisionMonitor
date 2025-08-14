@@ -9,7 +9,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
 using OpenCvSharp;
-using SafetyVisionMonitor.Shared.AI;
 using SafetyVisionMonitor.Shared.Database;
 using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Shared.ViewModels.Base;

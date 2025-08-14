@@ -12,7 +12,8 @@ namespace SafetyVisionHistoryViewer
         protected override void OnStartup(StartupEventArgs e)
         {
             // Syncfusion 테마 설정
-            SfSkinManager.SetTheme(this, new Theme("FluentDark"));
+            Syncfusion.Licensing.SyncfusionLicenseProvider.RegisterLicense(
+                "Ngo9BigBOggjHTQxAR8/V1JEaF5cXmRCf1FpRmJGdld5fUVHYVZUTXxaS00DNHVRdkdmWXhccnRVR2ddVU12XENWYEk=");
 
             // 데이터베이스 서비스 초기화
             DatabaseService = new DatabaseService();

@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
+             xmlns:grid="clr-namespace:Syncfusion.UI.Xaml.Grid;assembly=Syncfusion.SfGrid.WPF"
              mc:Ignorable="d" 
              d:DesignHeight="800" d:DesignWidth="1200"
              Loaded="OnLoaded">
@@ -26,15 +27,15 @@
                 </StackPanel>
                 
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                    <syncfusion:ButtonAdv Label="테스트 이벤트 추가" 
+                    <syncfusion:ButtonAdv Content="테스트 이벤트 추가" 
                                           Command="{Binding AddTestEventCommand}"
                                           Background="Orange"
                                           Foreground="White"
                                           Margin="0,0,10,0"/>
-                    <syncfusion:ButtonAdv Label="새로고침" 
+                    <syncfusion:ButtonAdv Content="새로고침" 
                                           Command="{Binding LoadEventsCommand}"
                                           Margin="0,0,10,0"/>
-                    <syncfusion:ButtonAdv Label="Excel 내보내기" 
+                    <syncfusion:ButtonAdv Content="Excel 내보내기" 
                                         Command="{Binding ExportToExcelCommand}"
                                         IsEnabled="{Binding IsExporting, Converter={StaticResource InverseBoolConverter}}"/>
                 </StackPanel>
@@ -84,15 +85,13 @@
                 <StackPanel Grid.Column="4" Margin="0,0,20,0" VerticalAlignment="Bottom">
                     <syncfusion:ButtonAdv IsEnabled="{Binding IsLoading, Converter={StaticResource InverseBoolConverter}}"
                                           Command="{Binding LoadEventsCommand}"
-                                          Label="조 회"
+                                          Content="{Binding LoadButtonText}"
                                           Width="80"
                                           Height="28"
                                           Background="DodgerBlue"
                                           Foreground="White"
                                           BorderBrush="SteelBlue"
-                                          CornerRadius="3">
-                        <TextBlock Text="{Binding LoadButtonText}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                    </syncfusion:ButtonAdv>
+                                          CornerRadius="3"/>
                 </StackPanel>
                 
                 <!-- 통계 정보 -->
@@ -121,7 +120,7 @@
                              AllowGrouping="False">
             
             <syncfusion:SfDataGrid.RowStyle>
-                <Style TargetType="syncfusion:VirtualizingCellsControl">
+                <Style TargetType="grid:VirtualizingCellsControl">
                     <Style.Triggers>
                         <DataTrigger Binding="{Binding IsVisible}" Value="False">
                             <Setter Property="Visibility" Value="Collapsed"/>

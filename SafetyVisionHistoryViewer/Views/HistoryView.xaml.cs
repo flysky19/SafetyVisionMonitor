@@ -10,6 +10,7 @@ public partial class HistoryView : UserControl
     public HistoryView()
     {
         InitializeComponent();
+        DataContext = new HistoryViewModel();
     }
     
     private void OnLoaded(object sender, System.Windows.RoutedEventArgs e)

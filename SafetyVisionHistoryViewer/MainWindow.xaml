@@ -3,7 +3,8 @@
                                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                                  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
                                  xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-                                 xmlns:local="clr-namespace:SafetyVisionMonitor"
+                                 xmlns:local="clr-namespace:SafetyVisionHistoryViewer"
+                                 xmlns:views="clr-namespace:SafetyVisionHistoryViewer.Views"
                                  xmlns:syncfusion="http://schemas.syncfusion.com/wpf"
                                  xmlns:syncfusionskin="clr-namespace:Syncfusion.SfSkinManager;assembly=Syncfusion.SfSkinManager.WPF"
                                  mc:Ignorable="d"
@@ -11,16 +12,21 @@
                                  Title="DeepSafety v1.0.0" Height="1024" Width="1600"
                                  WindowStartupLocation="CenterScreen">
     <Grid>
-        <syncfusion:TabControlExt Name="MainTabControl" TabPanelBackground="#2D2D30" TabStripPlacement="Top">
+        <syncfusion:TabControlExt Name="MainTabControl" TabStripPlacement="Top">
             <!-- 이벤트 로그 탭 -->
-            <syncfusion:SfTabItem Header="이벤트 로그" Name="EventLogTab">
-                <Frame Name="EventLogFrame" Source="Views/EventLogView.xaml" NavigationUIVisibility="Hidden"/>
-            </syncfusion:SfTabItem>
+            <syncfusion:TabItemExt Header="이벤트 로그" Name="EventLogTab">
+                <views:EventLogView/>
+            </syncfusion:TabItemExt>
             
             <!-- 히스토리 탭 -->
-            <syncfusion:SfTabItem Header="히스토리" Name="HistoryTab">
-                <Frame Name="HistoryFrame" Source="Views/HistoryView.xaml" NavigationUIVisibility="Hidden"/>
-            </syncfusion:SfTabItem>
-        </syncfusion:ㅅ>
+            <syncfusion:TabItemExt Header="히스토리" Name="HistoryTab">
+                <views:HistoryView/>
+            </syncfusion:TabItemExt>
+            
+            <!-- 트래킹 로그 탭 -->
+            <syncfusion:TabItemExt Header="트래킹 로그" Name="TrackingLogTab">
+                <views:TrackingLogView/>
+            </syncfusion:TabItemExt>
+        </syncfusion:TabControlExt>
     </Grid>
 </syncfusion:ChromelessWindow>

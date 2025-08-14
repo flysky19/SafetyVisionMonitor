@@ -1154,5 +1154,120 @@ namespace SafetyVisionMonitor.Shared.Services
                 // 실패해도 계속 진행 (EnsureCreated가 기본 테이블 생성)
             }
         }
+
+        #region PersonTrackingRecord 관련 메서드들
+
+        /// <summary>
+        /// 사람 추적 기록 조회
+        /// </summary>
+        public async Task<List<PersonTrackingRecord>> GetPersonTrackingRecordsAsync(
+            DateTime? startDate = null,
+            DateTime? endDate = null,
+            string? cameraId = null,
+            bool? isActive = null,
+            int limit = 1000)
+        {
+            using var context = new AppDbContext();
+            
+            var query = context.PersonTrackingRecords.AsQueryable();
+            
+            // 날짜 필터
+            if (startDate.HasValue)
+            {
+                query = query.Where(r => r.FirstDetectedTime >= startDate.Value);
+            }
+            
+            if (endDate.HasValue)
+            {
+                query = query.Where(r => r.FirstDetectedTime <= endDate.Value);
+            }
+            
+            // 카메라 필터
+            if (!string.IsNullOrEmpty(cameraId))
+            {
+                query = query.Where(r => r.CameraId == cameraId);
+            }
+            
+            // 활성 상태 필터
+            if (isActive.HasValue)
+            {
+                query = query.Where(r => r.IsActive == isActive.Value);
+            }
+            
+            return await query
+                .OrderByDescending(r => r.FirstDetectedTime)
+                .Take(limit)
+                .ToListAsync();
+        }
+
+        /// <summary>
+        /// 사람 추적 기록 저장
+        /// </summary>
+        public async Task<int> SavePersonTrackingRecordAsync(PersonTrackingRecord record)
+        {
+            using var context = new AppDbContext();
+            
+            if (record.Id == 0)
+            {
+                context.PersonTrackingRecords.Add(record);
+            }
+            else
+            {
+                context.PersonTrackingRecords.Update(record);
+            }
+            
+            await context.SaveChangesAsync();
+            return record.Id;
+        }
+
+        /// <summary>
+        /// 사람 추적 기록 삭제
+        /// </summary>
+        public async Task<bool> DeletePersonTrackingRecordAsync(int recordId)
+        {
+            using var context = new AppDbContext();
+            
+            var record = await context.PersonTrackingRecords
+                .FirstOrDefaultAsync(r => r.Id == recordId);
+                
+            if (record != null)
+            {
+                context.PersonTrackingRecords.Remove(record);
+                await context.SaveChangesAsync();
+                return true;
+            }
+            
+            return false;
+        }
+
+        /// <summary>
+        /// 특정 사람 추적 기록 조회
+        /// </summary>
+        public async Task<PersonTrackingRecord?> GetPersonTrackingRecordAsync(int recordId)
+        {
+            using var context = new AppDbContext();
+            
+            return await context.PersonTrackingRecords
+                .FirstOrDefaultAsync(r => r.Id == recordId);
+        }
+
+        /// <summary>
+        /// 활성 추적 기록 수 조회
+        /// </summary>
+        public async Task<int> GetActiveTrackingCountAsync(string? cameraId = null)
+        {
+            using var context = new AppDbContext();
+            
+            var query = context.PersonTrackingRecords.Where(r => r.IsActive);
+            
+            if (!string.IsNullOrEmpty(cameraId))
+            {
+                query = query.Where(r => r.CameraId == cameraId);
+            }
+            
+            return await query.CountAsync();
+        }
+
+        #endregion
     }
 }

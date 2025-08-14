@@ -53,12 +53,21 @@ namespace SafetyVisionHistoryViewer.ViewModels
             EventTypes = new ObservableCollection<string> { "전체", "DangerZoneEntry", "WarningZoneEntry", "NoHelmet", "Fall" };
             Cameras = new ObservableCollection<string> { "전체", "CAM001", "CAM002", "CAM003", "CAM004" };
             
+            System.Diagnostics.Debug.WriteLine($"EventLogViewModel: Constructor completed");
+            System.Diagnostics.Debug.WriteLine($"EventLogViewModel: EventTypes.Count = {EventTypes.Count}");
+            System.Diagnostics.Debug.WriteLine($"EventLogViewModel: Cameras.Count = {Cameras.Count}");
+            System.Diagnostics.Debug.WriteLine($"EventLogViewModel: StartDate = {StartDate}");
+            System.Diagnostics.Debug.WriteLine($"EventLogViewModel: EndDate = {EndDate}");
+            System.Diagnostics.Debug.WriteLine($"EventLogViewModel: SelectedEventType = {SelectedEventType}");
+            System.Diagnostics.Debug.WriteLine($"EventLogViewModel: SelectedCamera = {SelectedCamera}");
+            
             //LoadSampleData();
         }
         
         public override async void OnLoaded()
         {
             base.OnLoaded();
+            System.Diagnostics.Debug.WriteLine($"EventLogViewModel: OnLoaded called");
             await LoadEvents();
         }
         
@@ -208,8 +217,14 @@ namespace SafetyVisionHistoryViewer.ViewModels
             
             try
             {
+                System.Diagnostics.Debug.WriteLine($"EventLogViewModel: LoadEvents started");
+                System.Diagnostics.Debug.WriteLine($"EventLogViewModel: StartDate={StartDate}, EndDate={EndDate}");
+                System.Diagnostics.Debug.WriteLine($"EventLogViewModel: SelectedEventType={SelectedEventType}, SelectedCamera={SelectedCamera}");
+                
                 // DatabaseService에서 실제 안전 이벤트 데이터 로드
                 var databaseService = SafetyVisionHistoryViewer.App.DatabaseService;
+                System.Diagnostics.Debug.WriteLine($"EventLogViewModel: DatabaseService is {(databaseService != null ? "available" : "null")}");
+                
                 if (databaseService != null)
                 {
                     var safetyEvents = await databaseService.GetSafetyEventsAsync(
@@ -278,6 +293,7 @@ namespace SafetyVisionHistoryViewer.ViewModels
             {
                 IsLoading = false;
                 LoadButtonText = "🔍 조회";
+                System.Diagnostics.Debug.WriteLine($"EventLogViewModel: LoadEvents completed. IsLoading = {IsLoading}");
             }
         }
         

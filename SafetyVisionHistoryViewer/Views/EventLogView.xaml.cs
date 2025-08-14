@@ -10,6 +10,7 @@ public partial class EventLogView : UserControl
     public EventLogView()
     {
         InitializeComponent();
+        DataContext = new EventLogViewModel();
     }
     
     private void OnLoaded(object sender, System.Windows.RoutedEventArgs e)

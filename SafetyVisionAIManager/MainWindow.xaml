@@ -6,16 +6,16 @@
         WindowStartupLocation="CenterScreen"
         WindowState="Maximized">
     <Grid>
-        <syncfusion:SfTabControl Name="MainTabControl" TabPanelBackground="#2D2D30" TabStripPlacement="Top">
+        <syncfusion:TabControlExt Name="MainTabControl" TabStripPlacement="Top">
             <!-- AI 모델 관리 탭 -->
-            <syncfusion:SfTabItem Header="AI 모델 관리" Name="AIModelTab">
+            <syncfusion:TabItemExt Header="AI 모델 관리" Name="AIModelTab">
                 <Frame Name="AIModelFrame" Source="Views/AIModelView.xaml" NavigationUIVisibility="Hidden"/>
-            </syncfusion:SfTabItem>
+            </syncfusion:TabItemExt>
             
             <!-- 모델 변환 탭 -->
-            <syncfusion:SfTabItem Header="모델 변환" Name="ModelConversionTab">
+            <syncfusion:TabItemExt Header="모델 변환" Name="ModelConversionTab">
                 <Frame Name="ModelConversionFrame" Source="Views/ModelConversionView.xaml" NavigationUIVisibility="Hidden"/>
-            </syncfusion:SfTabItem>
-        </syncfusion:SfTabControl>
+            </syncfusion:TabItemExt>
+        </syncfusion:TabControlExt>
     </Grid>
 </Window>

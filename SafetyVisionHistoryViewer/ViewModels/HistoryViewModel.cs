@@ -147,15 +147,176 @@ namespace SafetyVisionHistoryViewer.ViewModels
             
             try
             {
-                // TODO: DatabaseService에서 실제 통계 데이터 로드
-                await Task.Delay(1000); // 시뮬레이션
+                var databaseService = SafetyVisionHistoryViewer.App.DatabaseService;
+                if (databaseService != null)
+                {
+                    // 실제 DB에서 통계 데이터 로드
+                    await LoadDailyStatisticsFromDatabase(databaseService);
+                    await LoadEventTypeStatisticsFromDatabase(databaseService);
+                    await LoadCameraStatisticsFromDatabase(databaseService);
+                    await LoadHourlyStatisticsFromDatabase(databaseService);
+                    
+                    StatusMessage = "실제 데이터베이스에서 통계를 불러왔습니다.";
+                }
+                else
+                {
+                    // 샘플 데이터 로드 (DB 연결 실패 시)
+                    LoadSampleData();
+                    StatusMessage = "샘플 데이터를 불러왔습니다 (DB 연결 실패).";
+                }
                 
                 UpdateSummaryStatistics();
-                StatusMessage = "통계 데이터를 불러왔습니다.";
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"통계 로드 중 오류: {ex.Message}";
+                // 오류 시 샘플 데이터 로드
+                LoadSampleData();
+                UpdateSummaryStatistics();
             }
             finally
             {
                 IsLoading = false;
+            }
+        }
+
+        private async Task LoadDailyStatisticsFromDatabase(SafetyVisionMonitor.Shared.Services.DatabaseService databaseService)
+        {
+            DailyStatistics.Clear();
+            
+            for (int i = 30; i >= 0; i--)
+            {
+                var date = DateTime.Today.AddDays(-i);
+                var nextDate = date.AddDays(1);
+                
+                var events = await databaseService.GetSafetyEventsAsync(
+                    startDate: date,
+                    endDate: nextDate,
+                    limit: 10000
+                );
+                
+                DailyStatistics.Add(new DailyStatistics
+                {
+                    Date = date,
+                    TotalEvents = events.Count,
+                    DangerZoneEvents = events.Count(e => e.EventType == "DangerZoneEntry"),
+                    WarningZoneEvents = events.Count(e => e.EventType == "WarningZoneEntry"),
+                    NoHelmetEvents = events.Count(e => e.EventType == "NoHelmet")
+                });
+            }
+        }
+
+        private async Task LoadEventTypeStatisticsFromDatabase(SafetyVisionMonitor.Shared.Services.DatabaseService databaseService)
+        {
+            var events = await databaseService.GetSafetyEventsAsync(
+                startDate: StartDate,
+                endDate: EndDate.AddDays(1),
+                limit: 10000
+            );
+            
+            var totalCount = events.Count;
+            if (totalCount == 0)
+            {
+                // 데이터가 없으면 샘플 데이터 유지
+                return;
+            }
+            
+            EventTypeStatistics.Clear();
+            
+            var eventGroups = events.GroupBy(e => e.EventType).ToList();
+            var colors = new[] { "#FF0000", "#FFA500", "#FFFF00", "#808080", "#00FF00", "#0000FF" };
+            
+            for (int i = 0; i < eventGroups.Count && i < colors.Length; i++)
+            {
+                var group = eventGroups[i];
+                var count = group.Count();
+                var percentage = (double)count / totalCount * 100;
+                
+                EventTypeStatistics.Add(new EventTypeStatistics
+                {
+                    EventType = GetEventTypeDisplay(group.Key),
+                    Count = count,
+                    Percentage = percentage,
+                    Color = colors[i]
+                });
+            }
+        }
+
+        private string GetEventTypeDisplay(string eventType)
+        {
+            return eventType switch
+            {
+                "DangerZoneEntry" => "위험구역 진입",
+                "WarningZoneEntry" => "경고구역 진입", 
+                "NoHelmet" => "안전모 미착용",
+                "Fall" => "넘어짐 감지",
+                "UnauthorizedAreaAccess" => "무단 구역 접근",
+                "SafetyEquipmentMissing" => "안전 장비 미착용",
+                _ => eventType
+            };
+        }
+
+        private async Task LoadCameraStatisticsFromDatabase(SafetyVisionMonitor.Shared.Services.DatabaseService databaseService)
+        {
+            CameraStatistics.Clear();
+            
+            var cameras = new[] { "CAM001", "CAM002", "CAM003", "CAM004" };
+            
+            foreach (var camera in cameras)
+            {
+                var events = await databaseService.GetSafetyEventsAsync(
+                    startDate: StartDate,
+                    endDate: EndDate.AddDays(1),
+                    cameraId: camera,
+                    limit: 10000
+                );
+                
+                var trackingRecords = await databaseService.GetPersonTrackingRecordsAsync(
+                    startDate: StartDate,
+                    endDate: EndDate.AddDays(1),
+                    cameraId: camera,
+                    limit: 10000
+                );
+                
+                CameraStatistics.Add(new CameraStatistics
+                {
+                    CameraId = camera,
+                    EventCount = events.Count,
+                    ActiveHours = trackingRecords.Count > 0 ? 
+                        (int)(trackingRecords.Max(r => r.LastSeenTime) - trackingRecords.Min(r => r.FirstDetectedTime)).TotalHours : 0,
+                    DetectionRate = trackingRecords.Count > 0 ? 
+                        trackingRecords.Average(r => r.Confidence) * 100 : 0
+                });
+            }
+        }
+
+        private async Task LoadHourlyStatisticsFromDatabase(SafetyVisionMonitor.Shared.Services.DatabaseService databaseService)
+        {
+            HourlyStatistics.Clear();
+            
+            var events = await databaseService.GetSafetyEventsAsync(
+                startDate: StartDate,
+                endDate: EndDate.AddDays(1),
+                limit: 10000
+            );
+            
+            var trackingRecords = await databaseService.GetPersonTrackingRecordsAsync(
+                startDate: StartDate,
+                endDate: EndDate.AddDays(1),
+                limit: 10000
+            );
+            
+            for (int hour = 0; hour < 24; hour++)
+            {
+                var hourlyEvents = events.Count(e => e.Timestamp.Hour == hour);
+                var hourlyPersons = trackingRecords.Count(r => r.FirstDetectedTime.Hour == hour);
+                
+                HourlyStatistics.Add(new HourlyStatistics
+                {
+                    Hour = hour,
+                    EventCount = hourlyEvents,
+                    PersonCount = hourlyPersons
+                });
             }
         }
         

@@ -2,12 +2,24 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:syncfusionskin="clr-namespace:Syncfusion.SfSkinManager;assembly=Syncfusion.SfSkinManager.WPF"
+             xmlns:converters="clr-namespace:SafetyVisionMonitor.Shared.Converters;assembly=SafetyVisionMonitor.Shared"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="/Syncfusion.Themes.FluentDark.WPF;component/SfSkinManager/SfSkinManagerStyle.xaml" />
+                <ResourceDictionary Source="/SafetyVisionMonitor.Shared;component/Resources/Styles/SharedStyles.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            
+            <!-- Built-in Converters -->
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+            
+            <!-- Shared Converters -->
+            <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
+            <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
+            <converters:InverseNullToVisibilityConverter x:Key="InverseNullToVisibilityConverter"/>
+            <converters:BoolToColorConverter x:Key="BoolToColorConverter"/>
+            <converters:BoolToStatusTextConverter x:Key="BoolToStatusTextConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

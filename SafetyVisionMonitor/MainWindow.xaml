@@ -90,12 +90,6 @@
                         
                         <RadioButton Style="{StaticResource MenuButtonStyle}"
                                    Command="{Binding NavigateCommand}"
-                                   CommandParameter="History">
-                            <TextBlock Text="이력 조회" Foreground="White"/>
-                        </RadioButton>
-                        
-                        <RadioButton Style="{StaticResource MenuButtonStyle}"
-                                   Command="{Binding NavigateCommand}"
                                    CommandParameter="AIModel">
                             <TextBlock Text="AI 모델 관리" Foreground="White"/>
                         </RadioButton>
@@ -108,8 +102,8 @@
                         
                         <RadioButton Style="{StaticResource MenuButtonStyle}"
                                    Command="{Binding NavigateCommand}"
-                                   CommandParameter="EventLog">
-                            <TextBlock Text="이벤트/로그" Foreground="White"/>
+                                   CommandParameter="SafetySettings">
+                            <TextBlock Text="안전 기능 설정" Foreground="White"/>
                         </RadioButton>
                     </StackPanel>
                 </ScrollViewer>

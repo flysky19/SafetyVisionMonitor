@@ -50,9 +50,8 @@ namespace SafetyVisionMonitor.ViewModels
                  ["ModelConversion"] = new ModelConversionViewModel(),
                  ["ZoneSetup"] = new ZoneSetupViewModel(),
                  ["AcrylicSetup"] = new AcrylicSetupViewModel(),
-                 ["History"] = new HistoryViewModel(),
-                 //["EventLog"] = new EventLogViewModel(),
                  ["TrackingSetup"] = new TrackingSetupViewModel(),
+                 ["SafetySettings"] = new SafetySettingsViewModel(),
             };
             
             // 기본 화면은 대시보드
