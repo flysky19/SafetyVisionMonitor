@@ -42,14 +42,18 @@ namespace SafetyVisionMonitor.ViewModels
         {
             Title = "AI 모델 관리";
             Models = new ObservableCollection<AIModel>();
+            
+            System.Diagnostics.Debug.WriteLine("AIModelViewModel: 생성자 호출됨");
         }
         
         public override async void OnLoaded()
         {
+            System.Diagnostics.Debug.WriteLine("AIModelViewModel: OnLoaded 호출됨");
             base.OnLoaded();
             
             // 데이터베이스에서 AI 모델 정보 로드
             await LoadSavedModels();
+            System.Diagnostics.Debug.WriteLine("AIModelViewModel: OnLoaded 완료");
         }
         
         
@@ -57,8 +61,12 @@ namespace SafetyVisionMonitor.ViewModels
         {
             try
             {
+                System.Diagnostics.Debug.WriteLine("AIModelViewModel: LoadSavedModels 시작");
+                
                 // 데이터베이스에서 AI 모델 로드
                 var modelConfigs = await App.DatabaseService.LoadAIModelConfigsAsync();
+                
+                System.Diagnostics.Debug.WriteLine($"AIModelViewModel: 데이터베이스에서 {modelConfigs?.Count ?? 0}개 모델 설정 로드됨");
                 
                 if (modelConfigs != null && modelConfigs.Count > 0)
                 {
@@ -93,13 +101,17 @@ namespace SafetyVisionMonitor.ViewModels
                         };
                         
                         Models.Add(model);
+                        System.Diagnostics.Debug.WriteLine($"AIModelViewModel: 모델 추가됨 - {model.Name} (활성: {model.IsActive})");
                     }
                 }
-                // 데이터베이스에 모델이 없으면 안내 메시지만 표시
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("AIModelViewModel: 데이터베이스에 모델이 없음");
+                }
                 
                 SelectedModel = Models.FirstOrDefault(m => m.IsActive);
                 
-                System.Diagnostics.Debug.WriteLine($"LoadSavedModels: Loaded {Models.Count} models from database");
+                System.Diagnostics.Debug.WriteLine($"AIModelViewModel: 총 {Models.Count}개 모델 로드 완료, 선택된 모델: {SelectedModel?.Name ?? "없음"}");
             }
             catch (Exception ex)
             {
@@ -197,20 +209,38 @@ namespace SafetyVisionMonitor.ViewModels
                 
             if (result == MessageBoxResult.Yes)
             {
+                System.Diagnostics.Debug.WriteLine($"AIModelViewModel: Attempting to delete model - ID: {model.Id}, Name: {model.Name}");
+                
                 // 데이터베이스에서 삭제
                 try
                 {
-                    var allConfigs = await App.DatabaseService.LoadAIModelConfigsAsync();
-                    var configToDelete = allConfigs.FirstOrDefault(c => c.Id.ToString() == model.Id);
-                    if (configToDelete != null)
+                    // ID를 int로 파싱하여 삭제
+                    if (int.TryParse(model.Id, out int modelId))
                     {
-                        allConfigs.Remove(configToDelete);
-                        await App.DatabaseService.SaveAIModelConfigsAsync(allConfigs);
+                        var deleteSuccess = await App.DatabaseService.DeleteAIModelConfigAsync(modelId);
+                        if (!deleteSuccess)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to delete model from database: Model ID {modelId} not found");
+                            StatusMessage = "데이터베이스에서 모델 삭제에 실패했습니다.";
+                            return;
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Successfully deleted model from database: ID {modelId}");
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to parse model ID: {model.Id}");
+                        StatusMessage = "잘못된 모델 ID입니다.";
+                        return;
                     }
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"Failed to delete model from database: {ex.Message}");
+                    StatusMessage = $"데이터베이스 삭제 중 오류 발생: {ex.Message}";
+                    return;
                 }
                 
                 // 파일 삭제
@@ -223,7 +253,27 @@ namespace SafetyVisionMonitor.ViewModels
                     catch { }
                 }
                 
+                // UI 모델 리스트에서 제거
                 Models.Remove(model);
+                
+                // AppData.AIModels에서도 제거 (동기화)
+                try
+                {
+                    if (int.TryParse(model.Id, out int modelId))
+                    {
+                        var appDataModel = App.AppData.AIModels.FirstOrDefault(m => m.Id == modelId);
+                        if (appDataModel != null)
+                        {
+                            App.AppData.AIModels.Remove(appDataModel);
+                            System.Diagnostics.Debug.WriteLine($"Removed model from AppData.AIModels: ID {modelId}");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to remove model from AppData: {ex.Message}");
+                }
+                
                 StatusMessage = $"모델 '{model.Name}'이(가) 삭제되었습니다.";
             }
         }

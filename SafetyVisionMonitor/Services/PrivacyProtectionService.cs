@@ -346,7 +346,8 @@ namespace SafetyVisionMonitor.Services
                 Cv2.PutText(frame, labelText, textPos, HersheyFonts.HersheySimplex, 0.6, 
                            new Scalar(0, 0, 255), 2); // 빨간색 텍스트
                 
-                System.Diagnostics.Debug.WriteLine($"사람 영역 기반 얼굴 흐림 적용 + 시각적 표시: {faceRect} (신뢰도: {detection.Confidence:F2})");
+                // 상세 로그는 성능 영향으로 주석 처리
+                // System.Diagnostics.Debug.WriteLine($"사람 영역 기반 얼굴 흐림 적용: {faceRect} (신뢰도: {detection.Confidence:F2})");
                 return frame;
             }
             catch (Exception ex)
@@ -388,7 +389,8 @@ namespace SafetyVisionMonitor.Services
                     Cv2.PutText(frame, labelText, textPos, HersheyFonts.HersheySimplex, 0.6, 
                                new Scalar(255, 0, 0), 2); // 파란색 텍스트
                     
-                    System.Diagnostics.Debug.WriteLine($"사람 영역 기반 몸 전체 흐림 적용 + 시각적 표시: {bodyRect} (신뢰도: {detection.Confidence:F2})");
+                    // 상세 로그는 성능 영향으로 주석 처리
+                    // System.Diagnostics.Debug.WriteLine($"사람 영역 기반 몸 전체 흐림 적용: {bodyRect} (신뢰도: {detection.Confidence:F2})");
                 }
                 
                 return frame;

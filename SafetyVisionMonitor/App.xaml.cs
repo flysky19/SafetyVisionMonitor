@@ -72,6 +72,50 @@ public partial class App
             AIInferenceService = new AIInferenceService();
             AIPipeline = new AIProcessingPipeline(AIInferenceService);
 
+            // YOLOv8 멀티태스크 엔진 초기화 - 일시적으로 비활성화
+            splash.UpdateStatus("AI 모델 초기화 중...");
+            
+            // AccessViolationException 문제로 인해 멀티태스크 엔진 사용 중단
+            System.Diagnostics.Debug.WriteLine("App: 멀티태스크 엔진 비활성화 - 단일 엔진 모드로 시작");
+            splash.UpdateStatus("단일 AI 엔진 모드로 시작");
+            
+            // 검출 표시는 사용자가 체크박스로 제어
+            System.Diagnostics.Debug.WriteLine("App: 객체 검출 표시는 사용자 설정에 따라 제어됨");
+            
+            // 기본 YOLOv8 모델 자동 로드 시도
+            try
+            {
+                var defaultModelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models", "yolov8s.onnx");
+                if (File.Exists(defaultModelPath))
+                {
+                    var aiModel = new AIModel
+                    {
+                        Id = "default_yolov8",
+                        Name = "YOLOv8s (기본)",
+                        ModelPath = defaultModelPath,
+                        Type = ModelType.YOLOv8,
+                        Confidence = 0.7f,
+                        IsActive = true
+                    };
+                    
+                    var success = await AIInferenceService.LoadModelAsync(aiModel);
+                    if (success)
+                    {
+                        splash.UpdateStatus("기본 AI 모델 로드 완료");
+                        System.Diagnostics.Debug.WriteLine("App: 기본 YOLOv8 모델 로드 성공");
+                    }
+                    else
+                    {
+                        splash.UpdateStatus("AI 모델 수동 로드 필요");
+                        System.Diagnostics.Debug.WriteLine("App: 기본 모델 로드 실패");
+                    }
+                }
+            }
+            catch (Exception modelEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"App: 기본 모델 로드 오류: {modelEx.Message}");
+            }
+
             // CameraService 초기화 (AIPipeline 이후)
             CameraService = new CameraService();
 
@@ -100,6 +144,12 @@ public partial class App
             // 로딩 완료 후 TopMost 해제
             splash.SetLoadingComplete();
             await Task.Delay(300); // 완료 메시지 표시 시간
+            
+            // 모든 서비스 초기화 완료 후 MainWindow 생성
+            splash.UpdateStatus("메인 화면 생성 중...");
+            var mainWindow = new MainWindow();
+            MainWindow = mainWindow;
+            mainWindow.Show();
         }
         catch (Exception ex)
         {

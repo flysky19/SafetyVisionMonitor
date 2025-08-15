@@ -235,12 +235,12 @@ namespace SafetyVisionMonitor.Services
                 bool bodyBlurEnabled = SafetySettingsManager.Instance.IsFeatureEnabled("bodyblur");
                 
                 // 테스트용: 강제로 프라이버시 보호 활성화 (임시)
-                if (!faceBlurEnabled && !bodyBlurEnabled)
-                {
-                    Debug.WriteLine("MonitoringService: 테스트용 - 프라이버시 보호 강제 활성화");
-                    faceBlurEnabled = true;
-                    bodyBlurEnabled = true;
-                }
+                // if (!faceBlurEnabled && !bodyBlurEnabled)
+                // {
+                //     Debug.WriteLine("MonitoringService: 테스트용 - 프라이버시 보호 강제 활성화");
+                //     faceBlurEnabled = true;
+                //     bodyBlurEnabled = true;
+                // }
                 
                 // 설정값 직접 확인
                 var currentSettings = SafetySettingsManager.Instance.CurrentSettings;
@@ -413,9 +413,16 @@ namespace SafetyVisionMonitor.Services
                     
                     await Task.Delay(40, cancellationToken); // ~25 FPS
                 }
+                catch (OperationCanceledException)
+                {
+                    Debug.WriteLine("모니터링 루프 정상 종료 (취소됨)");
+                    break;
+                }
                 catch (Exception ex)
                 {
                     Debug.WriteLine($"모니터링 루프 오류: {ex.Message}");
+                    // 오류 발생 시 잠시 대기 후 재시도
+                    await Task.Delay(1000, CancellationToken.None);
                 }
             }
         }

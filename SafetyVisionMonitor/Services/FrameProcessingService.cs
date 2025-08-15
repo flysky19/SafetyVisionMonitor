@@ -24,7 +24,7 @@ namespace SafetyVisionMonitor.Services
             // 최신 프레임만 유지하도록 설정
             var options = new ExecutionDataflowBlockOptions
             {
-                BoundedCapacity = 1, // 큐에 1개만 유지
+                BoundedCapacity = 3, // 큐에 3개 유지 (1→3으로 증가, 버퍼링 개선)
                 MaxDegreeOfParallelism = 1,
                 CancellationToken = CancellationToken.None
             };

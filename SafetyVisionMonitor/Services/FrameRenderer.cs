@@ -24,6 +24,7 @@ namespace SafetyVisionMonitor.Services
         private int _frameWidth;
         private int _frameHeight;
         private bool _disposed;
+        private readonly KoreanTextRenderer _koreanTextRenderer = new();
 
         /// <summary>
         /// 현재 비트맵 (UI 바인딩용)
@@ -211,25 +212,29 @@ namespace SafetyVisionMonitor.Services
                     ? $"{detection.DisplayName} ID:{detection.TrackingId} ({detection.Confidence:P0})"
                     : $"{detection.DisplayName} ({detection.Confidence:P0})";
                 
-                // 텍스트 배경
-                var textSize = Cv2.GetTextSize(label, HersheyFonts.HersheySimplex, 0.5, 1, out var baseline);
+                // 텍스트 크기 측정 (한글 지원)
+                var textSize = _koreanTextRenderer.GetTextSize(label, 0.5);
                 var textRect = new Rect(
                     rect.X,
                     rect.Y - textSize.Height - 5,
-                    textSize.Width + 5,
+                    textSize.Width + 10,
                     textSize.Height + 5
                 );
 
-                // 텍스트 배경 그리기
-                Cv2.Rectangle(frame, textRect, color, -1);
+                // 텍스트가 화면 밖으로 나가지 않도록 조정
+                if (textRect.Y < 0)
+                {
+                    textRect.Y = rect.Y + rect.Height + 5;
+                }
 
-                // 텍스트 그리기
-                Cv2.PutText(frame, label,
+                // 한글 텍스트 렌더링 (배경 포함)
+                _koreanTextRenderer.PutText(frame, label,
                     new OpenCvSharp.Point(rect.X + 2, rect.Y - 5),
-                    HersheyFonts.HersheySimplex,
                     0.5,
                     new Scalar(255, 255, 255), // 흰색 텍스트
-                    1);
+                    1,
+                    true, // 배경 그리기
+                    color); // 배경색은 박스 색상과 동일
 
                 // 중심점 표시 (선택사항)
                 var center = new OpenCvSharp.Point(
@@ -333,8 +338,10 @@ namespace SafetyVisionMonitor.Services
                     {
                         var idText = $"#{person.TrackingId}";
                         var textPos = new OpenCvSharp.Point((int)currentPos.X + 10, (int)currentPos.Y - 10);
-                        Cv2.PutText(frame, idText, textPos, HersheyFonts.HersheySimplex, 
-                                  0.6, new Scalar(255, 255, 255), 2);
+                        
+                        // 한글 텍스트 렌더링 (트래킹 ID는 숫자지만 일관성을 위해 사용)
+                        _koreanTextRenderer.PutText(frame, idText, textPos, 0.6, 
+                                  new Scalar(255, 255, 255), 2, true, new Scalar(0, 0, 0));
                     }
                 }
             }
@@ -349,6 +356,8 @@ namespace SafetyVisionMonitor.Services
             {
                 _bitmap = null;
             }
+            
+            _koreanTextRenderer?.Dispose();
         }
     }
 

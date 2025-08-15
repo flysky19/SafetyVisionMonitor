@@ -16,8 +16,10 @@ namespace SafetyVisionMonitor.Services
         private readonly ConcurrentDictionary<string, CameraConnection> _connections = new();
         private readonly int _maxCameras;
         private readonly ConcurrentDictionary<string, List<DetectionResult>> _latestDetections = new();
+        private readonly ConcurrentDictionary<string, DateTime> _detectionsTimestamp = new(); // 검출 결과 타임스탬프
         private readonly ConcurrentDictionary<string, Mat> _latestFrames = new(); // 최신 프레임 캐시
         private readonly ConcurrentDictionary<string, Mat> _processedFrames = new(); // 개인정보 보호 처리된 프레임 캐시
+        private readonly object _framesLock = new(); // 프레임 캐시 보호 (단순 락)
         public event EventHandler<CameraFrameEventArgs>? FrameReceived;
         public event EventHandler<CameraFrameEventArgs>? FrameReceivedForAI; // AI용 원본 프레임
         public event EventHandler<CameraFrameEventArgs>? FrameReceivedForUI; // UI용 저화질 프레임
@@ -244,33 +246,14 @@ namespace SafetyVisionMonitor.Services
                     // 새로운 기능 기반 렌더링 파이프라인 사용
                     try
                     {
-                        // 축소된 프레임에 맞게 검출 결과 좌표 조정
-                        var scaledDetections = detections.Select(d => new DetectionResult
-                        {
-                            Label = d.Label,
-                            ClassName = d.ClassName,
-                            Confidence = d.Confidence,
-                            TrackingId = d.TrackingId,
-                            CameraId = d.CameraId,
-                            ClassId = d.ClassId,
-                            Timestamp = d.Timestamp,
-                            Location = d.Location,
-                            BoundingBox = new System.Drawing.RectangleF(
-                                d.BoundingBox.X * 0.5f,
-                                d.BoundingBox.Y * 0.5f,
-                                d.BoundingBox.Width * 0.5f,
-                                d.BoundingBox.Height * 0.5f
-                            )
-                        }).ToArray();
-
-                        // 프레임 처리 컨텍스트 생성
+                        // 프레임 처리 컨텍스트 생성 (원본 좌표 사용, 렌더링에서 스케일 적용)
                         var context = new Features.FrameProcessingContext
                         {
                             CameraId = originalFrame.CameraId,
-                            Detections = scaledDetections,
+                            Detections = detections.ToArray(), // List를 Array로 변환 (이중 스케일링 방지)
                             TrackedPersons = trackedPersons,
                             TrackingConfig = trackingConfig,
-                            Scale = 0.5f // UI는 1/2 스케일
+                            Scale = 0.5f // UI는 1/2 스케일 - 렌더링 파이프라인에서 적용
                         };
 
                         // 오버레이 렌더링 파이프라인 적용
@@ -322,8 +305,18 @@ namespace SafetyVisionMonitor.Services
             
             _uiFrameCounters[cameraId]++;
             
-            // 3프레임마다 1번 UI 업데이트 (FPS 1/3로 감소)
-            return _uiFrameCounters[cameraId] % 3 == 0;
+            // 활성 카메라 수에 따라 프레임 스키핑 조정 (UI 부드러움 우선)
+            var activeCameraCount = _connections.Count;
+            var frameSkip = activeCameraCount switch
+            {
+                1 => 1,  // 1카메라: 모든 프레임 (FPS 1/1) - 최대 부드러움
+                2 => 1,  // 2카메라: 모든 프레임 (FPS 1/1)
+                3 => 2,  // 3카메라: 2프레임마다 1번 (FPS 1/2)
+                >= 4 => 2,  // 4카메라+: 2프레임마다 1번 (FPS 1/2)
+                _ => 2
+            };
+            
+            return _uiFrameCounters[cameraId] % frameSkip == 0;
         }
         
         private Mat CreateLowResolutionFrame(Mat originalFrame)
@@ -370,11 +363,22 @@ namespace SafetyVisionMonitor.Services
             var showAllDetections = ViewModels.DashboardViewModel.StaticShowAllDetections;
             var showDetailedInfo = ViewModels.DashboardViewModel.StaticShowDetailedInfo;
             
+            // 디버그: 정적 속성 상태 확인 (처음 몇 번만 로그)
+            if (detections.Count > 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: DrawDetections - ShowAll: {showAllDetections}, ShowDetailed: {showDetailedInfo}, DetectionCount: {detections.Count}");
+            }
+            
             foreach (var detection in detections)
             {
-                // 디버그 모드가 아니면 사람만 표시
-                if (!showAllDetections && detection.Label != "person")
+                // person은 항상 표시, 다른 객체는 "모든 검출 항목 표시"가 활성화된 경우에만 표시
+                bool shouldShow = detection.Label == "person" || showAllDetections;
+                
+                if (!shouldShow)
+                {
+                    System.Diagnostics.Debug.WriteLine($"CameraService: Skipping {detection.Label} (ShowAllDetections: {showAllDetections})");
                     continue;
+                }
                 
                 // 바운딩 박스 좌표 스케일 조정
                 var rect = new Rect(
@@ -535,12 +539,24 @@ namespace SafetyVisionMonitor.Services
         
         private void OnObjectDetected(object? sender, ObjectDetectionEventArgs e)
         {
-            // 카메라별로 최신 검출 결과 저장
+            // 카메라별로 최신 검출 결과 저장 (타임스탬프 포함)
             _latestDetections[e.CameraId] = e.Detections.ToList();
+            _detectionsTimestamp[e.CameraId] = DateTime.Now;
         }
         
         public List<DetectionResult> GetLatestDetections(string cameraId)
         {
+            // 검출 결과 만료 확인 (800ms 이후 만료 - 깜빡임 방지)
+            if (_detectionsTimestamp.TryGetValue(cameraId, out var timestamp))
+            {
+                var age = DateTime.Now - timestamp;
+                if (age.TotalMilliseconds > 800) // 800ms 이후 만료 (깜빡임 방지)
+                {
+                    // 만료된 검출 결과는 빈 리스트 반환 (잔상 제거)
+                    return new List<DetectionResult>();
+                }
+            }
+            
             return _latestDetections.TryGetValue(cameraId, out var detections) 
                 ? detections 
                 : new List<DetectionResult>();
@@ -637,19 +653,21 @@ namespace SafetyVisionMonitor.Services
             _connections.Clear();
             _latestDetections.Clear();
             
-            // 최신 프레임 캐시 정리
-            foreach (var frame in _latestFrames.Values)
+            // 최신 프레임 캐시 정리 (스레드 안전)
+            lock (_framesLock)
             {
-                frame?.Dispose();
+                foreach (var frame in _latestFrames.Values)
+                {
+                    frame?.Dispose();
+                }
+                _latestFrames.Clear();
+                
+                foreach (var frame in _processedFrames.Values)
+                {
+                    frame?.Dispose();
+                }
+                _processedFrames.Clear();
             }
-            _latestFrames.Clear();
-            
-            // 처리된 프레임 캐시 정리
-            foreach (var frame in _processedFrames.Values)
-            {
-                frame?.Dispose();
-            }
-            _processedFrames.Clear();
         }
         
         /// <summary>
@@ -657,20 +675,23 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         private void UpdateLatestFrameCache(string cameraId, Mat frame)
         {
-            try
+            lock (_framesLock)
             {
-                // 기존 프레임이 있으면 해제
-                if (_latestFrames.TryGetValue(cameraId, out var oldFrame))
+                try
                 {
-                    oldFrame?.Dispose();
+                    // 기존 프레임이 있으면 해제 (스레드 안전)
+                    if (_latestFrames.TryGetValue(cameraId, out var oldFrame))
+                    {
+                        oldFrame?.Dispose();
+                    }
+                    
+                    // 새 프레임으로 교체 (복사본 저장)
+                    _latestFrames[cameraId] = frame.Clone();
                 }
-                
-                // 새 프레임으로 교체 (복사본 저장)
-                _latestFrames[cameraId] = frame.Clone();
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"CameraService: Frame cache update error - {ex.Message}");
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"CameraService: Frame cache update error - {ex.Message}");
+                }
             }
         }
         
@@ -679,20 +700,22 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         public Mat? GetLatestFrame(string cameraId)
         {
-            try
+            lock (_framesLock)
             {
-                if (_latestFrames.TryGetValue(cameraId, out var frame) && frame != null && !frame.Empty())
+                try
                 {
-                    return frame.Clone(); // 복사본 반환
+                    if (_latestFrames.TryGetValue(cameraId, out var frame) && frame != null && !frame.Empty() && !frame.IsDisposed)
+                    {
+                        return frame.Clone(); // 복사본 반환 (스레드 안전)
+                    }
+                    
+                    return null;
                 }
-                
-                System.Diagnostics.Debug.WriteLine($"CameraService: No latest frame available for camera {cameraId}");
-                return null;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"CameraService: Frame retrieval error - {ex.Message}");
-                return null;
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"CameraService: Frame retrieval error - {ex.Message}");
+                    return null;
+                }
             }
         }
         

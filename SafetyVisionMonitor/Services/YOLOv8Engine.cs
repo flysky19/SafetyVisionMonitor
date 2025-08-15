@@ -19,15 +19,18 @@ namespace SafetyVisionMonitor.Services
     public class YOLOv8Engine : IDisposable
     {
         private Yolo? _yolo;
+        private PureONNXEngine? _pureEngine;
         private ModelMetadata _metadata;
         private bool _disposed = false;
         private static readonly HttpClient _httpClient = new HttpClient();
         private bool _isUsingGpu = false;
+        private bool _usePureEngine = false;
+        private int _accessViolationCount = 0;
         
         // 모델 다운로드 URL 및 기본 경로
         // YoloDotNet 호환 모델 (동적 축 없는 버전)
-        private const string DefaultModelUrl = "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n.onnx";
-        private const string DefaultModelFileName = "yolov8n.onnx";
+        private const string DefaultModelUrl = "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8s.onnx";
+        private const string DefaultModelFileName = "yolov8s.onnx";
         private static readonly string DefaultModelsDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models");
         private static readonly string DefaultModelPath = Path.Combine(DefaultModelsDirectory, DefaultModelFileName);
         
@@ -50,7 +53,7 @@ namespace SafetyVisionMonitor.Services
         };
         
         public ModelMetadata Metadata => _metadata;
-        public bool IsLoaded => _yolo != null;
+        public bool IsLoaded => _yolo != null || (_usePureEngine && _pureEngine?.IsLoaded == true);
         public bool IsUsingGpu => _isUsingGpu;
         public string ExecutionProvider => _isUsingGpu ? "CUDA GPU" : "CPU";
         
@@ -67,6 +70,19 @@ namespace SafetyVisionMonitor.Services
                 // 모델 경로 결정
                 var finalModelPath = modelPath ?? DefaultModelPath;
                 System.Diagnostics.Debug.WriteLine($"YOLOv8Engine: Attempting to load model from: {finalModelPath}");
+                
+                // ONNX 모델 검사
+                try
+                {
+                    if (File.Exists(finalModelPath))
+                    {
+                        ONNXModelInspector.PrintFullMetadata(finalModelPath);
+                    }
+                }
+                catch (Exception inspectEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"YOLOv8Engine: 모델 검사 실패: {inspectEx.Message}");
+                }
                 
                 // 모델 파일이 없으면 자동 다운로드
                 if (!File.Exists(finalModelPath))
@@ -415,7 +431,7 @@ namespace SafetyVisionMonitor.Services
             _metadata = new ModelMetadata();
             
             // YoloDotNet에서 메타데이터 추출
-            _metadata.InputSize = new Size(640, 640); // YOLOv8 기본 입력 크기
+            _metadata.InputSize = new Size(640, 640); // YOLOv8 표준 입력 크기 (현장 안전용 고해상도 유지)
             _metadata.ClassCount = CocoClassNames.Length;
             _metadata.AnchorCount = 8400; // YOLOv8 기본 앵커 수
             
@@ -434,7 +450,17 @@ namespace SafetyVisionMonitor.Services
         /// <returns>검출 결과</returns>
         public DetectionResult[] InferFrame(Mat frame, float confidenceThreshold = 0.7f, float nmsThreshold = 0.45f)
         {
-            if (_yolo == null || frame.Empty())
+            if (frame.Empty())
+                return Array.Empty<DetectionResult>();
+            
+            // PureONNXEngine 사용 중인 경우
+            if (_usePureEngine && _pureEngine != null)
+            {
+                return InferFrameWithPureEngine(frame, confidenceThreshold).GetAwaiter().GetResult();
+            }
+            
+            // YoloDotNet 사용 시도
+            if (_yolo == null)
                 return Array.Empty<DetectionResult>();
             
             try
@@ -456,11 +482,118 @@ namespace SafetyVisionMonitor.Services
                 
                 return detections.ToArray();
             }
+            catch (AccessViolationException avEx)
+            {
+                _accessViolationCount++;
+                System.Diagnostics.Debug.WriteLine($"❌ YOLOv8Engine AccessViolationException #{_accessViolationCount}: {avEx.Message}");
+                
+                // AccessViolationException이 발생하면 PureONNXEngine으로 전환
+                if (_accessViolationCount >= 2) // 2번 실패하면 전환
+                {
+                    System.Diagnostics.Debug.WriteLine("🔄 PureONNXEngine으로 자동 전환 중...");
+                    return SwitchToPureEngine(frame, confidenceThreshold);
+                }
+                
+                return Array.Empty<DetectionResult>();
+            }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"YOLOv8Engine: Inference error: {ex.Message}");
                 return Array.Empty<DetectionResult>();
             }
+        }
+        
+        /// <summary>
+        /// PureONNXEngine으로 전환하고 추론 실행
+        /// </summary>
+        private DetectionResult[] SwitchToPureEngine(Mat frame, float confidenceThreshold)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("PureONNXEngine 초기화 중...");
+                
+                // 현재 모델 경로 찾기
+                var currentModelPath = GetCurrentModelPath();
+                if (string.IsNullOrEmpty(currentModelPath))
+                {
+                    System.Diagnostics.Debug.WriteLine("현재 모델 경로를 찾을 수 없음");
+                    return Array.Empty<DetectionResult>();
+                }
+                
+                // PureONNXEngine 초기화
+                _pureEngine = new PureONNXEngine();
+                var initSuccess = _pureEngine.InitializeAsync(currentModelPath, _isUsingGpu).GetAwaiter().GetResult();
+                
+                if (initSuccess)
+                {
+                    _usePureEngine = true;
+                    
+                    // YoloDotNet 리소스 정리
+                    _yolo?.Dispose();
+                    _yolo = null;
+                    
+                    System.Diagnostics.Debug.WriteLine("✅ PureONNXEngine으로 전환 완료");
+                    
+                    // 추론 실행
+                    return InferFrameWithPureEngine(frame, confidenceThreshold).GetAwaiter().GetResult();
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("❌ PureONNXEngine 초기화 실패");
+                    _pureEngine?.Dispose();
+                    _pureEngine = null;
+                    return Array.Empty<DetectionResult>();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"PureONNXEngine 전환 실패: {ex.Message}");
+                _pureEngine?.Dispose();
+                _pureEngine = null;
+                return Array.Empty<DetectionResult>();
+            }
+        }
+        
+        /// <summary>
+        /// PureONNXEngine으로 추론 실행
+        /// </summary>
+        private async Task<DetectionResult[]> InferFrameWithPureEngine(Mat frame, float confidenceThreshold)
+        {
+            if (_pureEngine == null)
+                return Array.Empty<DetectionResult>();
+            
+            try
+            {
+                return await _pureEngine.RunDetectionAsync(frame, confidenceThreshold);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"PureONNXEngine 추론 오류: {ex.Message}");
+                return Array.Empty<DetectionResult>();
+            }
+        }
+        
+        /// <summary>
+        /// 현재 로드된 모델의 경로 반환
+        /// </summary>
+        private string GetCurrentModelPath()
+        {
+            // 기본 모델 경로들을 순서대로 확인
+            var possiblePaths = new[]
+            {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models", "yolov8s.onnx"),
+                DefaultModelPath
+            };
+            
+            foreach (var path in possiblePaths)
+            {
+                if (File.Exists(path))
+                {
+                    return path;
+                }
+            }
+            
+            return string.Empty;
         }
         
         /// <summary>
@@ -877,6 +1010,10 @@ namespace SafetyVisionMonitor.Services
             
             _yolo?.Dispose();
             _yolo = null;
+            
+            _pureEngine?.Dispose();
+            _pureEngine = null;
+            
             _disposed = true;
             
             System.Diagnostics.Debug.WriteLine("YOLOv8Engine: Disposed");

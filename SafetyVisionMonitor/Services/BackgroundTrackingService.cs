@@ -16,6 +16,7 @@ namespace SafetyVisionMonitor.Services
     {
         private readonly ConcurrentDictionary<string, PersonTrackingService> _trackingServices = new();
         private readonly ConcurrentDictionary<string, List<TrackedPerson>> _latestTrackedPersons = new();
+        private readonly ConcurrentDictionary<string, DateTime> _trackingTimestamp = new(); // 추적 결과 타임스탬프
         private readonly ConcurrentDictionary<string, AcrylicRegionFilter> _acrylicFilters = new();
         private TrackingConfiguration? _globalTrackingConfig;
         private bool _disposed = false;
@@ -213,6 +214,7 @@ namespace SafetyVisionMonitor.Services
                 lock (_latestTrackedPersons)
                 {
                     _latestTrackedPersons[cameraId] = trackedPersons;
+                    _trackingTimestamp[cameraId] = DateTime.Now; // 타임스탬프 업데이트
                 }
                 
                 // 검출 결과에 트래킹 ID 적용
@@ -292,6 +294,17 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         public List<TrackedPerson> GetLatestTrackedPersons(string cameraId)
         {
+            // 추적 결과 만료 확인 (1.5초 이후 만료 - 깜빡임 방지)
+            if (_trackingTimestamp.TryGetValue(cameraId, out var timestamp))
+            {
+                var age = DateTime.Now - timestamp;
+                if (age.TotalMilliseconds > 1500) // 1.5초 이후 만료 (깜빡임 방지)
+                {
+                    // 만료된 추적 결과는 빈 리스트 반환 (잔상 제거)
+                    return new List<TrackedPerson>();
+                }
+            }
+            
             return _latestTrackedPersons.GetValueOrDefault(cameraId, new List<TrackedPerson>());
         }
         

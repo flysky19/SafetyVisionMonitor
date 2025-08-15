@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using OpenCvSharp;
 using SafetyVisionMonitor.Services;
+using SafetyVisionMonitor.Shared.Database;
 using SafetyVisionMonitor.Shared.Models;
 
 namespace SafetyVisionMonitor.Services
@@ -16,10 +17,12 @@ namespace SafetyVisionMonitor.Services
     public class AIInferenceService : IDisposable
     {
         private YOLOv8Engine? _currentEngine;
+        private YOLOv8MultiTaskEngine? _yolov8MultiTaskEngine;
         private AIModel? _activeModel;
         private readonly ConcurrentQueue<PerformanceMetrics> _performanceHistory = new();
         private readonly Stopwatch _performanceTimer = new();
         private bool _disposed = false;
+        private bool _useMultiTaskEngine = false;
         
         // 성능 통계
         private long _totalFramesProcessed = 0;
@@ -33,12 +36,82 @@ namespace SafetyVisionMonitor.Services
         public event EventHandler<ModelDownloadProgressEventArgs>? ModelDownloadProgress;
         
         // 속성
-        public bool IsModelLoaded => _currentEngine?.IsLoaded == true;
+        public bool IsModelLoaded => _useMultiTaskEngine 
+            ? (_yolov8MultiTaskEngine?.IsDetectionModelLoaded == true)
+            : _currentEngine?.IsLoaded == true;
+        public bool IsMultiTaskEngineActive => _useMultiTaskEngine;
         public AIModel? ActiveModel => _activeModel;
         public long TotalFramesProcessed => _totalFramesProcessed;
         public double AverageInferenceTime => _totalFramesProcessed > 0 ? _totalInferenceTime / _totalFramesProcessed : 0;
-        public bool IsUsingGpu => _currentEngine?.IsUsingGpu ?? false;
-        public string ExecutionProvider => _currentEngine?.ExecutionProvider ?? "Unknown";
+        public bool IsUsingGpu => _useMultiTaskEngine 
+            ? (_yolov8MultiTaskEngine?.IsUsingGpu ?? false) 
+            : _currentEngine?.IsUsingGpu ?? false;
+        public string ExecutionProvider => _useMultiTaskEngine 
+            ? (_yolov8MultiTaskEngine?.ExecutionProvider ?? "Unknown")
+            : _currentEngine?.ExecutionProvider ?? "Unknown";
+        
+        // 멀티태스크 엔진 상태 속성
+        public bool IsPoseModelLoaded => _yolov8MultiTaskEngine?.IsPoseModelLoaded ?? false;
+        public bool IsSegmentationModelLoaded => _yolov8MultiTaskEngine?.IsSegmentationModelLoaded ?? false;
+        public bool IsClassificationModelLoaded => _yolov8MultiTaskEngine?.IsClassificationModelLoaded ?? false;
+        public bool IsOBBModelLoaded => _yolov8MultiTaskEngine?.IsOBBModelLoaded ?? false;
+        
+        /// <summary>
+        /// YOLOv8 멀티태스크 엔진 초기화
+        /// </summary>
+        public async Task<bool> InitializeYOLOv8MultiTaskEngineAsync(bool useGpu = true)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("AIInferenceService: YOLOv8 멀티태스크 엔진 초기화 시작...");
+                
+                // 기존 모델 언로드
+                UnloadModel();
+                
+                _yolov8MultiTaskEngine = new YOLOv8MultiTaskEngine();
+                
+                // 진행률 이벤트 구독
+                _yolov8MultiTaskEngine.ModelLoadProgress += OnMultiTaskModelLoadProgress;
+                
+                var loadedCount = await _yolov8MultiTaskEngine.InitializeAllModelsAsync(useGpu);
+                
+                if (loadedCount > 0)
+                {
+                    _useMultiTaskEngine = true;
+                    
+                    // 데이터베이스에 YOLOv8 모델들 등록
+                    await RegisterYOLOv8ModelsToDatabase(loadedCount);
+                    
+                    // 가상의 AI 모델 생성 (UI 호환성을 위해)
+                    _activeModel = new AIModel
+                    {
+                        Id = "yolov8_multitask",
+                        Name = "YOLOv8 멀티태스크",
+                        Type = ModelType.YOLOv8,
+                        ModelPath = "Models/yolov8s.onnx",
+                        Confidence = 0.7f,
+                        IsActive = true
+                    };
+                    
+                    System.Diagnostics.Debug.WriteLine($"AIInferenceService: YOLOv8 멀티태스크 엔진 초기화 완료 ({loadedCount}/5 모델 로드)");
+                    return true;
+                }
+                else
+                {
+                    _yolov8MultiTaskEngine?.Dispose();
+                    _yolov8MultiTaskEngine = null;
+                    System.Diagnostics.Debug.WriteLine("AIInferenceService: YOLOv8 멀티태스크 엔진 초기화 실패");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _yolov8MultiTaskEngine?.Dispose();
+                _yolov8MultiTaskEngine = null;
+                System.Diagnostics.Debug.WriteLine($"AIInferenceService: YOLOv8 멀티태스크 엔진 초기화 오류: {ex.Message}");
+                return false;
+            }
+        }
         
         /// <summary>
         /// YOLO 모델 로드
@@ -65,6 +138,9 @@ namespace SafetyVisionMonitor.Services
                 
                 // 상태 업데이트
                 NotifyModelStatus(model, ModelStatus.Loading, "모델 로딩 중...");
+                
+                // 멀티태스크 엔진 사용 해제
+                _useMultiTaskEngine = false;
                 
                 // 비동기로 모델 로드 (자동 다운로드 포함)
                 _currentEngine = new YOLOv8Engine();
@@ -131,6 +207,18 @@ namespace SafetyVisionMonitor.Services
                 _activeModel = null;
                 System.Diagnostics.Debug.WriteLine("AIInferenceService: Model unloaded");
             }
+            
+            if (_yolov8MultiTaskEngine != null)
+            {
+                // 이벤트 구독 해제
+                _yolov8MultiTaskEngine.ModelLoadProgress -= OnMultiTaskModelLoadProgress;
+                
+                _yolov8MultiTaskEngine.Dispose();
+                _yolov8MultiTaskEngine = null;
+                _useMultiTaskEngine = false;
+                
+                System.Diagnostics.Debug.WriteLine("AIInferenceService: YOLOv8 MultiTask engine unloaded");
+            }
         }
         
         /// <summary>
@@ -138,6 +226,13 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         public async Task<DetectionResult[]> InferFrameAsync(string cameraId, Mat frame)
         {
+            // 멀티태스크 엔진 사용 시
+            if (_useMultiTaskEngine && _yolov8MultiTaskEngine != null && _activeModel != null)
+            {
+                return await InferFrameWithMultiTaskEngineAsync(cameraId, frame);
+            }
+            
+            // 기존 단일 엔진 사용 시
             if (_currentEngine == null || _activeModel == null || frame.Empty())
             {
                 return Array.Empty<DetectionResult>();
@@ -182,6 +277,187 @@ namespace SafetyVisionMonitor.Services
             {
                 System.Diagnostics.Debug.WriteLine($"AIInferenceService: Inference error: {ex.Message}");
                 return Array.Empty<DetectionResult>();
+            }
+        }
+        
+        /// <summary>
+        /// 멀티태스크 엔진을 사용한 프레임 추론
+        /// </summary>
+        private async Task<DetectionResult[]> InferFrameWithMultiTaskEngineAsync(string cameraId, Mat frame)
+        {
+            if (_yolov8MultiTaskEngine == null || _activeModel == null || frame.Empty())
+            {
+                return Array.Empty<DetectionResult>();
+            }
+            
+            try
+            {
+                _performanceTimer.Restart();
+                
+                // Object Detection 추론 (YOLOv8) - 안전성 체크 추가
+                DetectionResult[] detections;
+                try
+                {
+                    detections = await _yolov8MultiTaskEngine.RunObjectDetectionAsync(frame, (float)_activeModel.Confidence);
+                }
+                catch (AccessViolationException avEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ MultiTask Engine AccessViolationException: {avEx.Message}");
+                    System.Diagnostics.Debug.WriteLine("⚠️ 단일 엔진으로 폴백 시도");
+                    
+                    // 기존 단일 엔진으로 폴백
+                    return await FallbackToSingleEngine(cameraId, frame);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"❌ MultiTask Engine 오류: {ex.Message}");
+                    return Array.Empty<DetectionResult>();
+                }
+                
+                _performanceTimer.Stop();
+                
+                // 성능 통계 업데이트
+                var inferenceTime = _performanceTimer.Elapsed.TotalMilliseconds;
+                UpdatePerformanceMetrics(inferenceTime, detections.Length);
+                
+                // 검출 결과에 카메라 ID 설정
+                foreach (var detection in detections)
+                {
+                    detection.CameraId = cameraId;
+                }
+                
+                // 이벤트 발생
+                if (detections.Length > 0)
+                {
+                    ObjectDetected?.Invoke(this, new ObjectDetectionEventArgs
+                    {
+                        CameraId = cameraId,
+                        Detections = detections,
+                        ProcessingTime = inferenceTime
+                    });
+                }
+                
+                return detections;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"AIInferenceService: MultiTask inference error: {ex.Message}");
+                return Array.Empty<DetectionResult>();
+            }
+        }
+        
+        /// <summary>
+        /// 멀티태스크 엔진 실패 시 단일 엔진으로 폴백
+        /// </summary>
+        private async Task<DetectionResult[]> FallbackToSingleEngine(string cameraId, Mat frame)
+        {
+            try
+            {
+                // 기존 단일 엔진이 없으면 생성
+                if (_currentEngine == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("단일 엔진 초기화 중...");
+                    _currentEngine = new YOLOv8Engine();
+                    
+                    // 기본 YOLOv8 모델 로드
+                    var fallbackModelPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Models", "yolov8s.onnx");
+                    if (File.Exists(fallbackModelPath))
+                    {
+                        var success = await _currentEngine.InitializeAsync(fallbackModelPath, useGpu: false); // CPU 전용
+                        if (!success)
+                        {
+                            System.Diagnostics.Debug.WriteLine("단일 엔진 초기화 실패");
+                            return Array.Empty<DetectionResult>();
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine("폴백 모델 파일이 없음");
+                        return Array.Empty<DetectionResult>();
+                    }
+                }
+                
+                // 단일 엔진으로 추론
+                return await Task.Run(() =>
+                {
+                    try
+                    {
+                        return _currentEngine.InferFrame(frame, (float)_activeModel.Confidence, 0.45f);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"단일 엔진 추론도 실패: {ex.Message}");
+                        return Array.Empty<DetectionResult>();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"폴백 엔진 오류: {ex.Message}");
+                return Array.Empty<DetectionResult>();
+            }
+        }
+        
+        /// <summary>
+        /// Pose Estimation 추론
+        /// </summary>
+        public async Task<PoseResult[]> InferPoseAsync(string cameraId, Mat frame, float confidenceThreshold = 0.7f)
+        {
+            if (!_useMultiTaskEngine || _yolov8MultiTaskEngine == null)
+            {
+                return Array.Empty<PoseResult>();
+            }
+            
+            try
+            {
+                return await _yolov8MultiTaskEngine.RunPoseEstimationAsync(frame, confidenceThreshold);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"AIInferenceService: Pose inference error: {ex.Message}");
+                return Array.Empty<PoseResult>();
+            }
+        }
+        
+        /// <summary>
+        /// Instance Segmentation 추론
+        /// </summary>
+        public async Task<SegmentationResult[]> InferSegmentationAsync(string cameraId, Mat frame, float confidenceThreshold = 0.7f)
+        {
+            if (!_useMultiTaskEngine || _yolov8MultiTaskEngine == null)
+            {
+                return Array.Empty<SegmentationResult>();
+            }
+            
+            try
+            {
+                return await _yolov8MultiTaskEngine.RunInstanceSegmentationAsync(frame, confidenceThreshold);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"AIInferenceService: Segmentation inference error: {ex.Message}");
+                return Array.Empty<SegmentationResult>();
+            }
+        }
+        
+        /// <summary>
+        /// Image Classification 추론
+        /// </summary>
+        public async Task<ClassificationResult[]> InferClassificationAsync(string cameraId, Mat frame)
+        {
+            if (!_useMultiTaskEngine || _yolov8MultiTaskEngine == null)
+            {
+                return Array.Empty<ClassificationResult>();
+            }
+            
+            try
+            {
+                return await _yolov8MultiTaskEngine.RunClassificationAsync(frame);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"AIInferenceService: Classification inference error: {ex.Message}");
+                return Array.Empty<ClassificationResult>();
             }
         }
         
@@ -358,6 +634,100 @@ namespace SafetyVisionMonitor.Services
             ModelDownloadProgress?.Invoke(this, e);
             
             System.Diagnostics.Debug.WriteLine($"AIInferenceService: Download progress: {e.ProgressPercentage:F1}%");
+        }
+        
+        /// <summary>
+        /// 멀티태스크 모델 로드 진행률 이벤트 핸들러
+        /// </summary>
+        private void OnMultiTaskModelLoadProgress(object? sender, ModelLoadProgressEventArgs e)
+        {
+            // ModelDownloadProgressEventArgs 형태로 변환하여 기존 시스템과 호환
+            var progressEvent = new ModelDownloadProgressEventArgs
+            {
+                ProgressPercentage = e.ProgressPercentage,
+                DownloadedBytes = (long)(e.ProgressPercentage * 1000), // 더미 값
+                TotalBytes = 100000 // 더미 값
+            };
+            
+            ModelDownloadProgress?.Invoke(this, progressEvent);
+            System.Diagnostics.Debug.WriteLine($"AIInferenceService: MultiTask load progress: {e.Message} ({e.ProgressPercentage:F1}%)");
+        }
+        
+        /// <summary>
+        /// YOLOv8 멀티태스크 모델들을 데이터베이스에 등록
+        /// </summary>
+        private async Task RegisterYOLOv8ModelsToDatabase(int loadedCount)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("AIInferenceService: YOLOv8 모델들을 데이터베이스에 등록 중...");
+                
+                var modelConfigs = new List<AIModelConfig>();
+                
+                // Detection 모델
+                if (_yolov8MultiTaskEngine?.IsDetectionModelLoaded == true)
+                {
+                    modelConfigs.Add(CreateModelConfig("yolov8s_detection", "YOLOv8s Detection", "Models/yolov8s.onnx", "Object Detection"));
+                }
+                
+                // Pose 모델
+                if (_yolov8MultiTaskEngine?.IsPoseModelLoaded == true)
+                {
+                    modelConfigs.Add(CreateModelConfig("yolov8s_pose", "YOLOv8s Pose", "Models/yolov8s-pose.onnx", "Pose Estimation"));
+                }
+                
+                // Segmentation 모델
+                if (_yolov8MultiTaskEngine?.IsSegmentationModelLoaded == true)
+                {
+                    modelConfigs.Add(CreateModelConfig("yolov8s_seg", "YOLOv8s Segmentation", "Models/yolov8s-seg.onnx", "Instance Segmentation"));
+                }
+                
+                // Classification 모델
+                if (_yolov8MultiTaskEngine?.IsClassificationModelLoaded == true)
+                {
+                    modelConfigs.Add(CreateModelConfig("yolov8s_cls", "YOLOv8s Classification", "Models/yolov8s-cls.onnx", "Image Classification"));
+                }
+                
+                // OBB 모델
+                if (_yolov8MultiTaskEngine?.IsOBBModelLoaded == true)
+                {
+                    modelConfigs.Add(CreateModelConfig("yolov8s_obb", "YOLOv8s OBB", "Models/yolov8s-obb.onnx", "Oriented Bounding Box"));
+                }
+                
+                // 데이터베이스에 저장
+                if (modelConfigs.Count > 0)
+                {
+                    await App.DatabaseService.SaveAIModelConfigsAsync(modelConfigs);
+                    System.Diagnostics.Debug.WriteLine($"AIInferenceService: {modelConfigs.Count}개 YOLOv8 모델이 데이터베이스에 등록됨");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"AIInferenceService: 모델 데이터베이스 등록 오류: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// AIModelConfig 생성 헬퍼
+        /// </summary>
+        private AIModelConfig CreateModelConfig(string id, string name, string modelPath, string description)
+        {
+            var fullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, modelPath);
+            var fileSize = File.Exists(fullPath) ? new FileInfo(fullPath).Length : 0;
+            
+            return new AIModelConfig
+            {
+                ModelName = name,
+                ModelVersion = "8.0.0",
+                ModelType = "YOLOv8",
+                ModelPath = fullPath,
+                DefaultConfidence = 0.7,
+                IsActive = id == "yolov8s_detection", // Detection 모델만 기본 활성화
+                FileSize = fileSize,
+                UploadedTime = DateTime.Now,
+                Description = $"YOLOv8 {description} 모델 (자동 등록)",
+                ConfigJson = "{}"
+            };
         }
         
         public void Dispose()

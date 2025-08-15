@@ -55,7 +55,8 @@ namespace SafetyVisionMonitor.Services.Features
                 // 활성 기능들을 우선순위에 따라 정렬
                 var activeFeatures = _featureManager.GetActiveFeaturesByPriority();
                 
-                System.Diagnostics.Debug.WriteLine($"OverlayPipeline: Processing {activeFeatures.Count} features for camera {context.CameraId}");
+                // 상세 로그는 성능 영향으로 주석 처리
+                // System.Diagnostics.Debug.WriteLine($"OverlayPipeline: Processing {activeFeatures.Count} features for camera {context.CameraId}");
 
                 var processedFeatures = new List<string>();
                 var errors = new List<FeatureProcessingError>();
@@ -90,8 +91,8 @@ namespace SafetyVisionMonitor.Services.Features
 
                         processedFeatures.Add(feature.Id);
                         
-                        System.Diagnostics.Debug.WriteLine(
-                            $"OverlayPipeline: Applied '{feature.Name}' in {_processingTimes[feature.Id]:F2}ms");
+                        // 상세 로그는 성능 영향으로 주석 처리
+                        // System.Diagnostics.Debug.WriteLine($"OverlayPipeline: Applied '{feature.Name}' in {_processingTimes[feature.Id]:F2}ms");
                     }
                     catch (Exception ex)
                     {

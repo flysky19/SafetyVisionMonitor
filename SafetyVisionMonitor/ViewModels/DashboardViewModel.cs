@@ -43,10 +43,10 @@ namespace SafetyVisionMonitor.ViewModels
         
         // 디버그 옵션
         [ObservableProperty]
-        private bool showAllDetections = false;
+        private bool showAllDetections = false; // 기본값을 false로 변경
         
         [ObservableProperty]
-        private bool showDetailedInfo = false;
+        private bool showDetailedInfo = false; // 기본값을 false로 변경
         
         [ObservableProperty]
         private bool showDetectionStats = false;
@@ -67,8 +67,8 @@ namespace SafetyVisionMonitor.ViewModels
         
         
         // 정적 속성으로 디버그 설정 공유
-        public static bool StaticShowAllDetections { get; private set; }
-        public static bool StaticShowDetailedInfo { get; private set; }
+        public static bool StaticShowAllDetections { get; set; }
+        public static bool StaticShowDetailedInfo { get; set; }
         
         // 카메라별 3D 구역 데이터 - Dictionary로 카메라별 관리
         private readonly Dictionary<string, ObservableCollection<ZoneVisualization>> _cameraWarningZones = new();
@@ -142,10 +142,23 @@ namespace SafetyVisionMonitor.ViewModels
         private int processedFps = 0;
         
         [ObservableProperty]
+        private int processedFrames = 0;
+        
+        [ObservableProperty]
+        private string inferenceTime = "0 ms";
+        
+        [ObservableProperty]
         private int detectedPersonCount = 0;
         
         [ObservableProperty]
         private int activeAlertsCount = 0;
+        
+        // 추적 표시 옵션
+        [ObservableProperty]
+        private bool showTrackingIds = true;
+        
+        [ObservableProperty]
+        private bool showTrackingPaths = false;
         
         // 디버그 정보
         [ObservableProperty]
@@ -158,26 +171,29 @@ namespace SafetyVisionMonitor.ViewModels
             Title = "실시간 모니터링 대시보드";
             Cameras = new ObservableCollection<CameraViewModel>();
             
-            // App.AppData에서 카메라 정보 로드
-            foreach (var camera in App.AppData.Cameras)
-            {
-                var cameraVm = new CameraViewModel
-                {
-                    CameraId = camera.Id,
-                    CameraName = camera.Name,
-                    IsConnected = camera.IsConnected
-                };
-                Cameras.Add(cameraVm);
-                _cameraFrames[camera.Id] = null;
-                _latestTrackedPersons[camera.Id] = new List<TrackedPerson>();
-            }
-            
-            // 추적은 백그라운드 서비스에서 처리됨
+            // AppData가 아직 초기화되지 않았을 수 있으므로 OnLoaded에서 카메라 로드
         }
         
         public override void OnLoaded()
         {
             base.OnLoaded();
+            
+            // App.AppData에서 카메라 정보 로드 (이제 AppData가 초기화됨)
+            if (App.AppData?.Cameras != null)
+            {
+                foreach (var camera in App.AppData.Cameras)
+                {
+                    var cameraVm = new CameraViewModel
+                    {
+                        CameraId = camera.Id,
+                        CameraName = camera.Name,
+                        IsConnected = camera.IsConnected
+                    };
+                    Cameras.Add(cameraVm);
+                    _cameraFrames[camera.Id] = null;
+                    _latestTrackedPersons[camera.Id] = new List<TrackedPerson>();
+                }
+            }
             
             // 서비스 이벤트 구독 (UI용 저화질 프레임 사용)
             App.CameraService.FrameReceivedForUI += OnFrameReceived;
@@ -196,8 +212,21 @@ namespace SafetyVisionMonitor.ViewModels
             // 구역 업데이트 이벤트 구독
             App.AppData.ZoneUpdated += OnZoneUpdated;
             
+            // AI 서비스 상태 이벤트 구독
+            App.AIInferenceService.ModelStatusChanged += OnAIModelStatusChanged;
+            App.AIInferenceService.PerformanceUpdated += OnAIPerformanceUpdated;
+            
             // 구역 데이터 로드
             LoadZoneOverlaysAsync();
+            
+            // AI 모델 상태 초기화
+            UpdateAIModelStatus();
+            
+            // 정적 속성 초기화
+            UpdateStaticProperties();
+            
+            // 속성 변경 이벤트 구독
+            PropertyChanged += OnPropertyChanged;
         }
         
         public override void Cleanup()
@@ -212,6 +241,13 @@ namespace SafetyVisionMonitor.ViewModels
             {
                 App.AIPipeline.ObjectDetected -= OnObjectDetectedForDebug;
             }
+            
+            // AI 서비스 이벤트 구독 해제
+            App.AIInferenceService.ModelStatusChanged -= OnAIModelStatusChanged;
+            App.AIInferenceService.PerformanceUpdated -= OnAIPerformanceUpdated;
+            
+            // 속성 변경 이벤트 구독 해제
+            PropertyChanged -= OnPropertyChanged;
             
             App.AppData.ZoneUpdated -= OnZoneUpdated;
             
@@ -892,6 +928,80 @@ namespace SafetyVisionMonitor.ViewModels
             System.Diagnostics.Debug.WriteLine($"Show detailed info changed: {value}");
         }
         
+        partial void OnShowDetectionStatsChanged(bool value)
+        {
+            System.Diagnostics.Debug.WriteLine($"Show detection stats changed: {value}");
+            
+            if (value)
+            {
+                // 통계 활성화 시 현재 데이터로 즉시 갱신
+                RefreshDetectionStats();
+            }
+            else
+            {
+                // 통계 비활성화 시 정보 클리어
+                App.Current.Dispatcher.Invoke(() => 
+                {
+                    DebugDetectionInfo.Clear();
+                    DetectedPersonCount = 0;
+                });
+            }
+        }
+        
+        private void RefreshDetectionStats()
+        {
+            if (!ShowDetectionStats) return;
+            
+            Task.Run(() =>
+            {
+                try
+                {
+                    var allDetections = new List<DetectionResult>();
+                    
+                    // 모든 카메라의 최신 검출 결과 수집
+                    foreach (var camera in Cameras)
+                    {
+                        var latestDetections = App.CameraService?.GetLatestDetections(camera.CameraId);
+                        if (latestDetections != null)
+                        {
+                            foreach (var detection in latestDetections)
+                            {
+                                if (ShowAllDetections || detection.Label == "person")
+                                {
+                                    allDetections.Add(detection);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // UI 쓰레드에서 업데이트
+                    App.Current.Dispatcher.Invoke(() =>
+                    {
+                        lock (_debugLock)
+                        {
+                            DebugDetectionInfo.Clear();
+                            
+                            var sortedDetections = allDetections
+                                .OrderByDescending(d => d.Confidence)
+                                .Take(20)
+                                .ToList();
+                                
+                            foreach (var detection in sortedDetections)
+                            {
+                                DebugDetectionInfo.Add(detection);
+                            }
+                            
+                            DetectedPersonCount = allDetections.Count(d => d.Label == "person");
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"RefreshDetectionStats error: {ex.Message}");
+                }
+            });
+        }
+        
         /// <summary>
         /// ShowROIRegions 속성 변경 시 아크릴 경계선 표시/숨김 처리
         /// </summary>
@@ -1514,6 +1624,147 @@ namespace SafetyVisionMonitor.ViewModels
                 }
                 
                 return frame; // 오류 발생 시 원본 프레임 반환
+            }
+        }
+        
+        /// <summary>
+        /// AI 모델 상태 변경 이벤트 핸들러
+        /// </summary>
+        private void OnAIModelStatusChanged(object? sender, ModelStatusEventArgs e)
+        {
+            App.Current.Dispatcher.Invoke(() =>
+            {
+                UpdateAIModelStatus();
+            });
+        }
+        
+        /// <summary>
+        /// AI 성능 업데이트 이벤트 핸들러
+        /// </summary>
+        private void OnAIPerformanceUpdated(object? sender, ModelPerformanceEventArgs e)
+        {
+            App.Current.Dispatcher.Invoke(() =>
+            {
+                // 성능 지표 업데이트
+                ProcessedFps = (int)(1000.0 / Math.Max(e.Performance.InferenceTime, 1.0));
+                
+                // 처리된 프레임 수 업데이트
+                ProcessedFrames = e.Performance.ProcessedFrames;
+                
+                // 추론 시간 업데이트
+                InferenceTime = $"{e.Performance.InferenceTime:F1} ms";
+                
+                // 검출된 객체 수 업데이트
+                DetectedPersonCount = e.Performance.DetectedObjects;
+                
+                System.Diagnostics.Debug.WriteLine($"Dashboard: AI Performance - FPS: {ProcessedFps}, Inference: {e.Performance.InferenceTime:F1}ms, Objects: {DetectedPersonCount}");
+            });
+        }
+        
+        /// <summary>
+        /// AI 모델 상태 업데이트
+        /// </summary>
+        private void UpdateAIModelStatus()
+        {
+            try
+            {
+                var aiService = App.AIInferenceService;
+                if (aiService != null)
+                {
+                    // 모델 로드 상태
+                    IsModelRunning = aiService.IsModelLoaded;
+                    
+                    // 실행 공급자 (GPU/CPU)
+                    ExecutionProvider = aiService.ExecutionProvider;
+                    IsUsingGpu = aiService.IsUsingGpu;
+                    IsGpuActive = aiService.IsUsingGpu;
+                    IsAIAccelerationEnabled = aiService.IsUsingGpu;
+                    
+                    // 활성 모델 정보
+                    var activeModel = aiService.ActiveModel;
+                    if (activeModel != null)
+                    {
+                        AiModelName = activeModel.Name;
+                        AiModelVersion = activeModel.Version ?? "1.0.0";
+                        ModelConfidence = activeModel.Confidence;
+                        ModelStatusText = IsModelRunning ? "실행 중" : "중지됨";
+                    }
+                    else
+                    {
+                        AiModelName = "모델 없음";
+                        AiModelVersion = "N/A";
+                        ModelStatusText = "모델 로드 필요";
+                    }
+                    
+                    // 멀티태스크 엔진 상태
+                    if (aiService.IsMultiTaskEngineActive)
+                    {
+                        AiModelName += " (멀티태스크)";
+                        
+                        // 각 모델별 로드 상태 표시
+                        var loadedModels = new List<string>();
+                        if (aiService.IsModelLoaded) loadedModels.Add("Detection");
+                        if (aiService.IsPoseModelLoaded) loadedModels.Add("Pose");
+                        if (aiService.IsSegmentationModelLoaded) loadedModels.Add("Segmentation");
+                        if (aiService.IsClassificationModelLoaded) loadedModels.Add("Classification");
+                        if (aiService.IsOBBModelLoaded) loadedModels.Add("OBB");
+                        
+                        if (loadedModels.Count > 0)
+                        {
+                            ModelStatusText = $"실행 중 ({string.Join(", ", loadedModels)})";
+                        }
+                    }
+                    
+                    System.Diagnostics.Debug.WriteLine($"Dashboard: AI Status - Model: {AiModelName}, Status: {ModelStatusText}, Provider: {ExecutionProvider}");
+                }
+                else
+                {
+                    // AI 서비스가 없는 경우
+                    IsModelRunning = false;
+                    AiModelName = "AI 서비스 없음";
+                    AiModelVersion = "N/A";
+                    ModelStatusText = "AI 서비스 초기화 필요";
+                    ExecutionProvider = "CPU";
+                    IsUsingGpu = false;
+                    IsGpuActive = false;
+                    IsAIAccelerationEnabled = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Dashboard: UpdateAIModelStatus 오류: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 정적 속성 업데이트 (CameraService에서 사용하는 디버그 설정)
+        /// </summary>
+        private void UpdateStaticProperties()
+        {
+            StaticShowAllDetections = ShowAllDetections;
+            StaticShowDetailedInfo = ShowDetailedInfo;
+            
+            System.Diagnostics.Debug.WriteLine($"Dashboard: 정적 속성 업데이트 완료");
+            System.Diagnostics.Debug.WriteLine($"  - ShowAllDetections: {ShowAllDetections} -> Static: {StaticShowAllDetections}");
+            System.Diagnostics.Debug.WriteLine($"  - ShowDetailedInfo: {ShowDetailedInfo} -> Static: {StaticShowDetailedInfo}");
+        }
+        
+        /// <summary>
+        /// 속성 변경 이벤트 핸들러
+        /// </summary>
+        private void OnPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(ShowAllDetections):
+                    StaticShowAllDetections = ShowAllDetections;
+                    System.Diagnostics.Debug.WriteLine($"Dashboard: ShowAllDetections 변경됨: {ShowAllDetections}");
+                    break;
+                    
+                case nameof(ShowDetailedInfo):
+                    StaticShowDetailedInfo = ShowDetailedInfo;
+                    System.Diagnostics.Debug.WriteLine($"Dashboard: ShowDetailedInfo 변경됨: {ShowDetailedInfo}");
+                    break;
             }
         }
     }

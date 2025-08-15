@@ -15,6 +15,10 @@ namespace SafetyVisionMonitor.Shared.Models
         // 이벤트 억제 플래그 (무한 루프 방지)
         private bool _suppressEvents = false;
         
+        // 디바운싱을 위한 타이머
+        private static readonly Dictionary<string, System.Threading.Timer> _debounceTimers = new();
+        private static readonly object _timerLock = new();
+        
         // 의존성 주입된 서비스들
         public static IZoneDatabaseService? DatabaseService { get; set; }
         public static IZoneNotificationService? NotificationService { get; set; }
@@ -87,38 +91,61 @@ namespace SafetyVisionMonitor.Shared.Models
             
             try
             {
-                // 변경사항을 즉시 데이터베이스에 저장하고 다른 ViewModel들에 알림
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        // 데이터베이스 서비스가 주입되었다면 저장
-                        if (DatabaseService != null)
-                        {
-                            await DatabaseService.SaveZone3DConfigsAsync(new List<Zone3D> { this });
-                            System.Diagnostics.Debug.WriteLine($"Zone {Name} IsEnabled={value} auto-saved to database");
-                        }
-                        
-                        // 알림 서비스가 주입되었다면 알림
-                        NotificationService?.NotifyZoneUpdated(this);
-                        NotificationService?.NotifyZoneVisualizationUpdate();
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Failed to auto-save zone toggle: {ex.Message}");
-                    }
-                    finally
-                    {
-                        // 작업 완료 후 이벤트 억제 해제
-                        _suppressEvents = false;
-                        System.Diagnostics.Debug.WriteLine($"Zone3D {Name}: Event suppression released");
-                    }
-                });
+                // 즉시 알림 (UI 반응성 보장)
+                NotificationService?.NotifyZoneUpdated(this);
+                NotificationService?.NotifyZoneVisualizationUpdate();
+                
+                // 디바운싱된 데이터베이스 저장 (500ms 지연)
+                ScheduleDebouncedSave();
             }
             catch
             {
                 // 예외 발생 시에도 이벤트 억제 해제
                 _suppressEvents = false;
+            }
+            
+            // 이벤트 억제 해제는 즉시 수행
+            _suppressEvents = false;
+        }
+        
+        private void ScheduleDebouncedSave()
+        {
+            lock (_timerLock)
+            {
+                // 기존 타이머가 있으면 제거
+                if (_debounceTimers.TryGetValue(Id, out var existingTimer))
+                {
+                    existingTimer.Dispose();
+                }
+                
+                // 새 타이머 생성 (500ms 후 저장)
+                _debounceTimers[Id] = new System.Threading.Timer(async _ =>
+                {
+                    try
+                    {
+                        if (DatabaseService != null)
+                        {
+                            await DatabaseService.SaveZone3DConfigsAsync(new List<Zone3D> { this });
+                            System.Diagnostics.Debug.WriteLine($"Zone {Name} debounced save completed");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Debounced save failed for zone {Name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        // 타이머 정리
+                        lock (_timerLock)
+                        {
+                            if (_debounceTimers.TryGetValue(Id, out var timer))
+                            {
+                                timer.Dispose();
+                                _debounceTimers.Remove(Id);
+                            }
+                        }
+                    }
+                }, null, 500, Timeout.Infinite); // 500ms 후 1회 실행
             }
         }
     }

@@ -792,6 +792,37 @@ namespace SafetyVisionMonitor.Shared.Services
             }
         }
         
+        /// <summary>
+        /// AI 모델 설정 삭제
+        /// </summary>
+        public async Task<bool> DeleteAIModelConfigAsync(int modelId)
+        {
+            try
+            {
+                using var context = new AppDbContext();
+                
+                var modelConfig = await context.AIModelConfigs.FirstOrDefaultAsync(m => m.Id == modelId);
+                if (modelConfig != null)
+                {
+                    context.AIModelConfigs.Remove(modelConfig);
+                    await context.SaveChangesAsync();
+                    
+                    System.Diagnostics.Debug.WriteLine($"DeleteAIModelConfigAsync: Deleted model config with ID {modelId}");
+                    return true;
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"DeleteAIModelConfigAsync: Model config with ID {modelId} not found");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DeleteAIModelConfigAsync Error: {ex.Message}");
+                return false;
+            }
+        }
+        
         // 안전 이벤트 조회
         public async Task<List<SafetyEvent>> GetSafetyEventsAsync(DateTime startDate, int limit = 100)
         {

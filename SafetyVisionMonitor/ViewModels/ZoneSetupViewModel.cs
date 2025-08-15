@@ -107,8 +107,7 @@ namespace SafetyVisionMonitor.ViewModels
 
             _frameRenderer.FrameSizeChanged += OnFrameSizeChanged;
             
-            // 구역 시각화 업데이트 이벤트 구독
-            App.AppData.ZoneVisualizationUpdateRequested += OnZoneVisualizationUpdateRequested;
+            // 구역 시각화 업데이트 이벤트 구독은 OnLoaded에서 처리
             
             LoadDataAsync();
         }
@@ -677,6 +676,8 @@ namespace SafetyVisionMonitor.ViewModels
         public void OnLoaded()
         {
             // View가 로드되었을 때 필요한 초기화
+            // 구역 시각화 업데이트 이벤트 구독 (AppData가 이제 초기화됨)
+            App.AppData.ZoneVisualizationUpdateRequested += OnZoneVisualizationUpdateRequested;
         }
 
         #endregion

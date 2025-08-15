@@ -148,7 +148,7 @@
                                                                 SizeMode="Small"/>
                                             
                                             <syncfusion:ButtonAdv 
-                                                Content="{Binding Camera.IsConnected, Mode=OneWay,
+                                                Label="{Binding Camera.IsConnected, Mode=OneWay,
                                                          Converter={StaticResource BoolToConnectTextConverter}}"
                                                 Command="{Binding DataContext.ToggleConnectionCommand, 
                                                          RelativeSource={RelativeSource AncestorType=UserControl}}"

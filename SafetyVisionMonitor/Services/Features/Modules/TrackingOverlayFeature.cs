@@ -19,6 +19,7 @@ namespace SafetyVisionMonitor.Services.Features
         private bool _showTrackingPath = true;
         private bool _showTrackingId = true;
         private int _pathDisplayLength = 20;
+        private readonly KoreanTextRenderer _koreanTextRenderer = new();
         private readonly Scalar[] _trackingColors = 
         {
             new(255, 0, 0),    // 빨강
@@ -66,8 +67,12 @@ namespace SafetyVisionMonitor.Services.Features
                 if (trackedPersons == null || !trackedPersons.Any())
                     return frame;
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"TrackingOverlayFeature: Rendering {trackedPersons.Count} tracked persons for camera {context.CameraId}");
+                // 성능 최적화: 과도한 추적 객체 제한 (UI 부드러움 보장)
+                if (trackedPersons.Count > 15)
+                {
+                    trackedPersons = trackedPersons.Take(15).ToList(); // 최대 15개로 제한
+                    // System.Diagnostics.Debug.WriteLine($"TrackingOverlayFeature: Limited to 15 objects for {context.CameraId}");
+                }
 
                 foreach (var person in trackedPersons)
                 {
@@ -196,19 +201,12 @@ namespace SafetyVisionMonitor.Services.Features
                 var textY = (int)((person.BoundingBox.Y - 10) * scale);
                 var textPos = new Point(textX, Math.Max(15, textY));
 
-                // 배경 그리기 (가독성 향상)
-                if (CurrentConfiguration?.GetProperty("showIdBackground", true) == true)
-                {
-                    var textSize = Cv2.GetTextSize(idText, HersheyFonts.HersheySimplex, textScale, 2, out _);
-                    var bgRect = new Rect(textPos.X - 2, textPos.Y - textSize.Height - 2, 
-                                         textSize.Width + 4, textSize.Height + 4);
-                    
-                    Cv2.Rectangle(frame, bgRect, color, -1);
-                }
-
-                // 텍스트 그리기
-                Cv2.PutText(frame, idText, textPos, HersheyFonts.HersheySimplex, 
-                           textScale, new Scalar(255, 255, 255), 2);
+                // 배경 표시 여부
+                bool showBackground = CurrentConfiguration?.GetProperty("showIdBackground", true) ?? true;
+                
+                // 한글 텍스트 렌더링 (트래킹 ID는 숫자지만 일관성을 위해 사용)
+                _koreanTextRenderer.PutText(frame, idText, textPos, textScale, 
+                           new Scalar(255, 255, 255), 2, showBackground, color);
             }
             catch (Exception ex)
             {
@@ -231,6 +229,12 @@ namespace SafetyVisionMonitor.Services.Features
             status.Metrics["pathDisplayLength"] = _pathDisplayLength;
             status.Metrics["availableColors"] = _trackingColors.Length;
             return status;
+        }
+
+        public override void Dispose()
+        {
+            _koreanTextRenderer?.Dispose();
+            base.Dispose();
         }
     }
 }

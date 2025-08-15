@@ -61,12 +61,14 @@
                         
                         <!-- 디버그 옵션 -->
                         <Separator Background="#444" Height="1" Margin="15,5"/>
-                        <CheckBox Content="모든 검출 항목 표시" 
+                        <CheckBox Content="모든 객체 표시 (사람 외)" 
                                   IsChecked="{Binding ShowAllDetections}"
-                                  Foreground="Yellow" Margin="0,5,15,0"/>
+                                  Foreground="Yellow" Margin="0,5,15,0"
+                                  ToolTip="사람 외의 모든 객체(자동차, 자전거 등)도 표시합니다"/>
                         <CheckBox Content="상세 정보 표시" 
                                   IsChecked="{Binding ShowDetailedInfo}"
-                                  Foreground="Cyan" Margin="0,0,15,0"/>
+                                  Foreground="Cyan" Margin="0,0,15,0"
+                                  ToolTip="검출 박스에 신뢰도, 클래스 ID 등 상세 정보를 표시합니다"/>
                         <CheckBox Content="검출 통계 표시" 
                                   IsChecked="{Binding ShowDetectionStats}"
                                   Foreground="LightGreen"/>
@@ -389,18 +391,28 @@
                                 <RowDefinition Height="25"/>
                                 <RowDefinition Height="25"/>
                                 <RowDefinition Height="25"/>
+                                <RowDefinition Height="25"/>
+                                <RowDefinition Height="25"/>
                             </Grid.RowDefinitions>
                             
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="처리 FPS:" Foreground="Gray"/>
                             <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ProcessedFps}" 
                                      Foreground="LightGreen" FontWeight="Bold"/>
                             
-                            <TextBlock Grid.Row="1" Grid.Column="0" Text="검출된 사람:" Foreground="Gray"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DetectedPersonCount}" 
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="추론 시간:" Foreground="Gray"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding InferenceTime}" 
+                                     Foreground="Cyan" FontWeight="Bold"/>
+                            
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="처리된 프레임:" Foreground="Gray"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ProcessedFrames}" 
+                                     Foreground="White" FontWeight="Bold"/>
+                            
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="검출된 사람:" Foreground="Gray"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DetectedPersonCount}" 
                                      Foreground="Yellow" FontWeight="Bold"/>
                             
-                            <TextBlock Grid.Row="2" Grid.Column="0" Text="활성 경고:" Foreground="Gray"/>
-                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding ActiveAlertsCount}" 
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="활성 경고:" Foreground="Gray"/>
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ActiveAlertsCount}" 
                                      Foreground="Orange" FontWeight="Bold"/>
                         </Grid>
                     </StackPanel>

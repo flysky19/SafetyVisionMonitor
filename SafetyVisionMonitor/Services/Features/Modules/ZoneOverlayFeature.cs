@@ -21,6 +21,11 @@ namespace SafetyVisionMonitor.Services.Features
         private bool _showDangerZones = true;
         private bool _showZoneLabels = true;
         private double _zoneOpacity = 0.3;
+        private readonly KoreanTextRenderer _koreanTextRenderer = new();
+        
+        // Zone3D 캐시 (무한 생성 방지)
+        private readonly Dictionary<string, Zone3D> _zoneCache = new();
+        private readonly object _cacheLock = new();
 
         public override FeatureConfiguration DefaultConfiguration => new()
         {
@@ -172,8 +177,8 @@ namespace SafetyVisionMonitor.Services.Features
                 var labelText = BuildZoneLabel(zone);
                 var textScale = CurrentConfiguration?.GetProperty("zoneLabelScale", 0.8) ?? 0.8;
 
-                // 텍스트 크기 계산
-                var textSize = Cv2.GetTextSize(labelText, HersheyFonts.HersheySimplex, textScale, 2, out var baseline);
+                // 텍스트 크기 계산 (한글 지원)
+                var textSize = _koreanTextRenderer.GetTextSize(labelText, textScale);
                 
                 // 텍스트 위치 조정
                 var textPos = new Point(
@@ -181,23 +186,10 @@ namespace SafetyVisionMonitor.Services.Features
                     centerY + textSize.Height / 2
                 );
 
-                // 배경 그리기
-                if (CurrentConfiguration?.GetProperty("showLabelBackground", true) == true)
-                {
-                    var bgRect = new Rect(
-                        textPos.X - 4, 
-                        textPos.Y - textSize.Height - 4,
-                        textSize.Width + 8, 
-                        textSize.Height + 8
-                    );
-                    
-                    Cv2.Rectangle(frame, bgRect, new Scalar(0, 0, 0), -1);
-                    Cv2.Rectangle(frame, bgRect, color, 1);
-                }
-
-                // 텍스트 그리기
-                Cv2.PutText(frame, labelText, textPos, HersheyFonts.HersheySimplex, 
-                           textScale, new Scalar(255, 255, 255), 2);
+                // 한글 텍스트 렌더링 (배경 포함)
+                bool showBackground = CurrentConfiguration?.GetProperty("showLabelBackground", true) ?? true;
+                _koreanTextRenderer.PutText(frame, labelText, textPos, textScale, 
+                           new Scalar(255, 255, 255), 2, showBackground, new Scalar(0, 0, 0));
             }
             catch (Exception ex)
             {
@@ -284,62 +276,118 @@ namespace SafetyVisionMonitor.Services.Features
 
         private Zone3D ConvertToZone3D(Zone3DConfig config)
         {
-            var zone = new Zone3D
+            lock (_cacheLock)
             {
-                Id = config.ZoneId,
-                Name = config.Name,
-                CameraId = config.CameraId,
-                IsEnabled = config.IsEnabled,
-                CreatedDate = config.CreatedTime,
-                Opacity = config.Opacity,
-                CalibrationPixelsPerMeter = config.CalibrationPixelsPerMeter,
-                CalibrationFrameWidth = config.CalibrationFrameWidth,
-                CalibrationFrameHeight = config.CalibrationFrameHeight
-            };
-
-            // Type 문자열을 ZoneType 열거형으로 변환
-            if (Enum.TryParse<ZoneType>(config.Type, out var zoneType))
-            {
-                zone.Type = zoneType;
-            }
-
-            // Color 문자열을 Color로 변환
-            try
-            {
-                if (!string.IsNullOrEmpty(config.Color))
+                // 캐시에서 기존 Zone3D 확인
+                if (_zoneCache.TryGetValue(config.ZoneId, out var existingZone))
                 {
-                    var color = System.Windows.Media.ColorConverter.ConvertFromString(config.Color);
-                    if (color != null)
+                    // 기존 객체 업데이트 (새로 생성하지 않음)
+                    existingZone.IsLoading = true; // 이벤트 억제
+                    try
                     {
-                        zone.DisplayColor = (System.Windows.Media.Color)color;
+                        existingZone.Name = config.Name;
+                        existingZone.CameraId = config.CameraId;
+                        existingZone.IsEnabled = config.IsEnabled;
+                        existingZone.Opacity = config.Opacity;
+                        existingZone.CalibrationPixelsPerMeter = config.CalibrationPixelsPerMeter;
+                        existingZone.CalibrationFrameWidth = config.CalibrationFrameWidth;
+                        existingZone.CalibrationFrameHeight = config.CalibrationFrameHeight;
+                        
+                        // Type 업데이트
+                        if (Enum.TryParse<ZoneType>(config.Type, out var zoneType1))
+                        {
+                            existingZone.Type = zoneType1;
+                        }
+                        
+                        // VerticesJson 업데이트
+                        if (!string.IsNullOrEmpty(config.VerticesJson))
+                        {
+                            try
+                            {
+                                var points = System.Text.Json.JsonSerializer.Deserialize<List<Point2D>>(config.VerticesJson);
+                                if (points != null)
+                                {
+                                    existingZone.FloorPoints = points;
+                                }
+                            }
+                            catch
+                            {
+                                // JSON 파싱 실패 시 무시
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        existingZone.IsLoading = false; // 이벤트 억제 해제
+                    }
+                    
+                    return existingZone;
+                }
+                
+                // 새 Zone3D 생성 (캐시에 없는 경우만)
+                var zone = new Zone3D
+                {
+                    IsLoading = true, // 생성 시 이벤트 억제
+                    Id = config.ZoneId,
+                    Name = config.Name,
+                    CameraId = config.CameraId,
+                    IsEnabled = config.IsEnabled,
+                    CreatedDate = config.CreatedTime,
+                    Opacity = config.Opacity,
+                    CalibrationPixelsPerMeter = config.CalibrationPixelsPerMeter,
+                    CalibrationFrameWidth = config.CalibrationFrameWidth,
+                    CalibrationFrameHeight = config.CalibrationFrameHeight
+                };
+                
+                // 캐시에 추가
+                _zoneCache[config.ZoneId] = zone;
+
+                // Type 문자열을 ZoneType 열거형으로 변환
+                if (Enum.TryParse<ZoneType>(config.Type, out var zoneType))
+                {
+                    zone.Type = zoneType;
+                }
+
+                // Color 문자열을 Color로 변환
+                try
+                {
+                    if (!string.IsNullOrEmpty(config.Color))
+                    {
+                        var color = System.Windows.Media.ColorConverter.ConvertFromString(config.Color);
+                        if (color != null)
+                        {
+                            zone.DisplayColor = (System.Windows.Media.Color)color;
+                        }
                     }
                 }
-            }
-            catch
-            {
-                // 색상 변환 실패 시 기본 색상 유지
-            }
-
-            // VerticesJson에서 FloorPoints 복원
-            try
-            {
-                if (!string.IsNullOrEmpty(config.VerticesJson))
+                catch
                 {
-                    var points = System.Text.Json.JsonSerializer.Deserialize<List<Point2D>>(config.VerticesJson);
-                    if (points != null)
+                    // 색상 변환 실패 시 기본 색상 유지
+                }
+
+                // VerticesJson에서 FloorPoints 복원
+                try
+                {
+                    if (!string.IsNullOrEmpty(config.VerticesJson))
                     {
-                        zone.FloorPoints = points;
+                        var points = System.Text.Json.JsonSerializer.Deserialize<List<Point2D>>(config.VerticesJson);
+                        if (points != null)
+                        {
+                            zone.FloorPoints = points;
+                        }
                     }
                 }
-            }
-            catch
-            {
-                // JSON 파싱 실패 시 빈 리스트 유지
-                zone.FloorPoints = new List<Point2D>();
-            }
+                catch
+                {
+                    // JSON 파싱 실패 시 빈 리스트 유지
+                    zone.FloorPoints = new List<Point2D>();
+                }
 
-            return zone;
+                zone.IsLoading = false; // 설정 완료 후 이벤트 활성화
+                return zone;
+            }
         }
+        
 
         public override FeatureStatus GetStatus()
         {
@@ -364,6 +412,19 @@ namespace SafetyVisionMonitor.Services.Features
             catch { }
 
             return status;
+        }
+
+        public override void Dispose()
+        {
+            _koreanTextRenderer?.Dispose();
+            
+            // 캐시 정리
+            lock (_cacheLock)
+            {
+                _zoneCache.Clear();
+            }
+            
+            base.Dispose();
         }
     }
 }

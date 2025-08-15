@@ -25,9 +25,9 @@ namespace SafetyVisionMonitor.Services
         private long _totalFramesDropped = 0;
         
         // 설정
-        private const int MaxConcurrentProcessing = 2; // 동시 처리 제한
-        private const int ProcessEveryNthFrame = 3; // N번째 프레임마다 처리 (성능 최적화)
-        private const int MaxQueueSize = 10; // 최대 큐 크기
+        private const int MaxConcurrentProcessing = 1; // 동시 처리 제한 (큐 오버플로우 방지)
+        private const int ProcessEveryNthFrame = 5; // N번째 프레임마다 처리 (성능 향상)
+        private const int MaxQueueSize = 10; // 최대 큐 크기 (메모리 절약)
         
         // 이벤트
         public event EventHandler<ObjectDetectionEventArgs>? ObjectDetected;

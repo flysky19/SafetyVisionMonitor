@@ -21,6 +21,7 @@ namespace SafetyVisionMonitor.Services.Features
         private bool _showObjectName = true;
         private double _confidenceThreshold = 0.5;
         private readonly Dictionary<string, Scalar> _classColors = new();
+        private readonly KoreanTextRenderer _koreanTextRenderer = new();
 
         public override FeatureConfiguration DefaultConfiguration => new()
         {
@@ -98,7 +99,19 @@ namespace SafetyVisionMonitor.Services.Features
                 int height = (int)(bbox.Height * scale);
 
                 var rect = new Rect(x, y, width, height);
-                var color = GetClassColor(detection.Label);
+                
+                // 검출 결과 나이에 따른 투명도 계산 (페이드아웃 효과)
+                var age = DateTime.Now - detection.Timestamp;
+                double alpha = 1.0; // 기본 불투명도
+                
+                if (age.TotalMilliseconds > 400) // 400ms 후부터 페이드아웃 시작
+                {
+                    var fadeTime = age.TotalMilliseconds - 400;
+                    alpha = Math.Max(0.3, 1.0 - (fadeTime / 400.0)); // 400ms에 걸쳐 서서히 투명해짐
+                }
+                
+                var baseColor = GetClassColor(detection.Label);
+                var color = new Scalar(baseColor.Val0 * alpha, baseColor.Val1 * alpha, baseColor.Val2 * alpha);
 
                 // 바운딩 박스 그리기
                 if (_showBoundingBox)
@@ -158,34 +171,28 @@ namespace SafetyVisionMonitor.Services.Features
                 var textScale = CurrentConfiguration?.GetProperty("textScale", 0.6) ?? 0.6;
                 var textThickness = 1;
 
-                // 텍스트 크기 계산
-                var textSize = Cv2.GetTextSize(text, HersheyFonts.HersheySimplex, textScale, textThickness, out var baseline);
+                // 텍스트 크기 계산 (한글 지원)
+                var textSize = _koreanTextRenderer.GetTextSize(text, textScale);
 
-                // 텍스트 배경 영역
-                var textRect = new Rect(
-                    boundingBox.X,
-                    Math.Max(0, boundingBox.Y - textSize.Height - 8),
-                    Math.Min(textSize.Width + 8, frame.Width - boundingBox.X),
-                    textSize.Height + 8
-                );
-
-                // 배경 그리기 (반투명)
-                if (CurrentConfiguration?.GetProperty("showTextBackground", true) == true)
+                // 텍스트 위치 계산
+                var textPos = new Point(boundingBox.X + 4, boundingBox.Y - 4);
+                
+                // 텍스트가 화면 밖으로 나가지 않도록 조정
+                if (textPos.Y - textSize.Height < 0)
                 {
-                    var backgroundOpacity = CurrentConfiguration?.GetProperty("textBackgroundOpacity", 0.7) ?? 0.7;
-                    var overlay = frame.Clone();
-                    Cv2.Rectangle(overlay, textRect, color, -1);
-                    Cv2.AddWeighted(frame, 1.0 - backgroundOpacity, overlay, backgroundOpacity, 0, frame);
-                    overlay.Dispose();
+                    textPos.Y = boundingBox.Y + boundingBox.Height + textSize.Height + 4;
                 }
 
-                // 텍스트 그리기
-                var textPos = new Point(boundingBox.X + 4, textRect.Y + textSize.Height + 4);
+                // 텍스트 색상 설정
                 var textColor = CurrentConfiguration?.GetProperty("useWhiteText", true) == true 
                     ? new Scalar(255, 255, 255) 
                     : new Scalar(0, 0, 0);
                 
-                Cv2.PutText(frame, text, textPos, HersheyFonts.HersheySimplex, textScale, textColor, textThickness);
+                // 배경 표시 여부
+                bool showBackground = CurrentConfiguration?.GetProperty("showTextBackground", true) ?? true;
+                
+                // 한글 텍스트 렌더링
+                _koreanTextRenderer.PutText(frame, text, textPos, textScale, textColor, textThickness, showBackground, color);
             }
             catch (Exception ex)
             {
@@ -252,6 +259,12 @@ namespace SafetyVisionMonitor.Services.Features
             status.Metrics["confidenceThreshold"] = _confidenceThreshold;
             status.Metrics["registeredColors"] = _classColors.Count;
             return status;
+        }
+
+        public override void Dispose()
+        {
+            _koreanTextRenderer?.Dispose();
+            base.Dispose();
         }
     }
 }
