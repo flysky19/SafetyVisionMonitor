@@ -21,11 +21,11 @@ namespace SafetyVisionMonitor.Services
             // 동시에 1개의 프레임만 처리 (프레임 드롭 방지)
             _frameProcessingSemaphore = new SemaphoreSlim(1, 1);
 
-            // 최신 프레임만 유지하도록 설정
+            // 최신 프레임만 유지하도록 설정 - 성능 최적화
             var options = new ExecutionDataflowBlockOptions
             {
-                BoundedCapacity = 3, // 큐에 3개 유지 (1→3으로 증가, 버퍼링 개선)
-                MaxDegreeOfParallelism = 1,
+                BoundedCapacity = 2, // 큐 크기 줄임 (지연 감소)
+                MaxDegreeOfParallelism = 2, // 병렬 처리 증가
                 CancellationToken = CancellationToken.None
             };
 
@@ -70,9 +70,9 @@ namespace SafetyVisionMonitor.Services
             await _frameProcessingSemaphore.WaitAsync();
             try
             {
-                // 프레임이 너무 오래되었으면 스킵
+                // 프레임이 너무 오래되었으면 스킵 - 더 관대하게 설정
                 var age = DateTime.UtcNow - request.Timestamp;
-                if (age.TotalMilliseconds > 100) // 100ms 이상 된 프레임은 스킵
+                if (age.TotalMilliseconds > 200) // 200ms로 늘림 (더 안정적)
                 {
                     return;
                 }

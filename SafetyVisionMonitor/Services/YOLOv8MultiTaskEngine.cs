@@ -188,52 +188,47 @@ namespace SafetyVisionMonitor.Services
                 
                 Yolo model;
                 
-                // AccessViolationException 방지를 위해 CPU 우선 사용
-                System.Diagnostics.Debug.WriteLine($"{task} 모델 CPU로 로드 중... (안정성 우선)");
-                
+                // GPU 우선 시도, 실패시 CPU 대체
+                System.Diagnostics.Debug.WriteLine($"{task} 모델 GPU로 로드 시도 중...");
+
                 try
                 {
-                    var cpuOptions = new YoloOptions
+                    // GPU 먼저 시도 - 기본 GPU 최적화 설정
+                    var gpuOptions = new YoloOptions
                     {
                         OnnxModel = modelPath,
                         ImageResize = ImageResize.Proportional,
-                        ExecutionProvider = new CpuExecutionProvider()
+                        ExecutionProvider = new CudaExecutionProvider(GpuId: 0, PrimeGpu: true)
                     };
                     
-                    model = new Yolo(cpuOptions);
-                    System.Diagnostics.Debug.WriteLine($"✅ {task} 모델 CPU로 로드 성공");
-                    _isUsingGpu = false; // CPU로 실행
+                    model = new Yolo(gpuOptions);
+                    _isUsingGpu = true;
+                    System.Diagnostics.Debug.WriteLine($"🚀 {task} 모델 GPU로 로드 성공! (CUDA 가속)");
                 }
-                catch (Exception cpuEx)
+                catch (Exception gpuEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"❌ {task} 모델 CPU 로드 실패: {cpuEx.Message}");
+                    System.Diagnostics.Debug.WriteLine($"⚠️ {task} GPU 로드 실패: {gpuEx.Message}");
                     
-                    // GPU 시도 (최후 수단)
-                    if (_isUsingGpu)
+                    // GPU 실패시 CPU 대체
+                    try
                     {
-                        try
+                        var cpuOptions = new YoloOptions
                         {
-                            System.Diagnostics.Debug.WriteLine($"{task} 모델 GPU로 재시도 중...");
-                            
-                            var gpuOptions = new YoloOptions
-                            {
-                                OnnxModel = modelPath,
-                                ImageResize = ImageResize.Proportional,
-                                ExecutionProvider = new CudaExecutionProvider(GpuId: 0, PrimeGpu: false) // PrimeGpu false로 변경
-                            };
-                            
-                            model = new Yolo(gpuOptions);
-                            System.Diagnostics.Debug.WriteLine($"✅ {task} 모델 GPU로 로드 성공");
-                        }
-                        catch (Exception gpuEx)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"❌ {task} 모델 GPU 로드도 실패: {gpuEx.Message}");
-                            throw; // 모든 시도 실패
-                        }
+                            OnnxModel = modelPath,
+                            ImageResize = ImageResize.Proportional,
+                            ExecutionProvider = new CpuExecutionProvider()
+                        };
+                        
+                        model = new Yolo(cpuOptions);
+                        _isUsingGpu = false;
+                        System.Diagnostics.Debug.WriteLine($"✅ {task} 모델 CPU로 대체 로드 성공");
                     }
-                    else
+                    catch (Exception cpuEx)
                     {
-                        throw; // CPU만 시도했는데 실패
+                        System.Diagnostics.Debug.WriteLine($"❌ {task} 모델 완전 로드 실패 - GPU/CPU 모두 실패");
+                        System.Diagnostics.Debug.WriteLine($"GPU 오류: {gpuEx.Message}");
+                        System.Diagnostics.Debug.WriteLine($"CPU 오류: {cpuEx.Message}");
+                        return false;
                     }
                 }
                 

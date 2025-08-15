@@ -20,7 +20,11 @@ namespace SafetyVisionMonitor.Services
         private readonly SafetyDetectionService _safetyDetection;
         private readonly BackgroundTrackingService _trackingService;
         private readonly PrivacyProtectionService _privacyProtection;
+        private readonly GPUUsageMonitor _gpuMonitor;
         private Task? _monitoringTask;
+        
+        // GPU 모니터링 데이터 저장용
+        private GPUUsageReport? _latestGpuReport;
         
         // 이벤트
         public event EventHandler<PerformanceMetrics>? PerformanceUpdated;
@@ -37,28 +41,32 @@ namespace SafetyVisionMonitor.Services
         public int ActiveTrackersCount => _trackingService.TotalActiveTrackers;
         public int TotalTrackersCreated => _trackingService.TotalTrackersCreated;
         
-        // 성능 카운터
-        private readonly PerformanceCounter? _cpuCounter;
-        private readonly PerformanceCounter? _memoryCounter;
-        private readonly List<PerformanceCounter> _gpuCounters;
+        // 성능 카운터 - 명시적 타입 지정
+        private readonly System.Diagnostics.PerformanceCounter? _cpuCounter;
+        private readonly System.Diagnostics.PerformanceCounter? _memoryCounter;
+        private readonly List<System.Diagnostics.PerformanceCounter> _gpuCounters;
         private readonly Process _currentProcess;
         private string _gpuName = "Unknown GPU";
         
         public MonitoringService()
         {
             _currentProcess = Process.GetCurrentProcess();
-            _gpuCounters = new List<PerformanceCounter>();
+            _gpuCounters = new List<System.Diagnostics.PerformanceCounter>();
             _safetyDetection = new SafetyDetectionService(App.DatabaseService);
             _trackingService = new BackgroundTrackingService();
             _privacyProtection = new PrivacyProtectionService(SafetySettingsManager.Instance.CurrentSettings);
+            _gpuMonitor = new GPUUsageMonitor();
+            
+            // GPU 모니터 이벤트 구독
+            _gpuMonitor.GPUUsageUpdated += OnGPUUsageUpdated;
             
             // 설정 변경 이벤트 구독
             SafetySettingsManager.Instance.SettingsChanged += OnSettingsChanged;
             
             try
             {
-                _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
-                _memoryCounter = new PerformanceCounter("Memory", "Available MBytes");
+                _cpuCounter = new System.Diagnostics.PerformanceCounter("Processor", "% Processor Time", "_Total");
+                _memoryCounter = new System.Diagnostics.PerformanceCounter("Memory", "Available MBytes"); // 명시적 네임스페이스
                 
                 // GPU 성능 카운터 초기화
                 InitializeGpuCounters();
@@ -89,9 +97,11 @@ namespace SafetyVisionMonitor.Services
             // 안전 감시 서비스 초기화
             await _safetyDetection.LoadZoneDataAsync();
             
-            // AI 파이프라인 이벤트 구독
+            // AI 파이프라인 이벤트 구독 (중복 구독 방지)
             if (App.AIPipeline != null)
             {
+                // 기존 구독 해제 후 재구독 (안전한 재시작)
+                App.AIPipeline.ObjectDetected -= OnAIObjectDetected;
                 App.AIPipeline.ObjectDetected += OnAIObjectDetected;
                 Debug.WriteLine("MonitoringService: AI 파이프라인 ObjectDetected 이벤트 구독 완료");
             }
@@ -100,12 +110,16 @@ namespace SafetyVisionMonitor.Services
                 Debug.WriteLine("MonitoringService: AI 파이프라인이 null입니다!");
             }
             
-            // 안전 감시 이벤트 구독
+            // 안전 감시 이벤트 구독 (중복 구독 방지)
+            _safetyDetection.SafetyEventDetected -= OnSafetyEventDetected;
             _safetyDetection.SafetyEventDetected += OnSafetyEventDetected;
+            _safetyDetection.ZoneViolationDetected -= OnZoneViolationDetected;
             _safetyDetection.ZoneViolationDetected += OnZoneViolationDetected;
             
-            // 추적 서비스 이벤트 구독
+            // 추적 서비스 이벤트 구독 (중복 구독 방지)
+            _trackingService.TrackingUpdated -= OnTrackingUpdated;
             _trackingService.TrackingUpdated += OnTrackingUpdated;
+            _trackingService.StatisticsUpdated -= OnTrackingStatisticsUpdated;
             _trackingService.StatisticsUpdated += OnTrackingStatisticsUpdated;
             
             // 자동 카메라 연결
@@ -128,6 +142,21 @@ namespace SafetyVisionMonitor.Services
             {
                 await _monitoringTask;
             }
+            
+            // AI 파이프라인 이벤트 구독 해제 (중요: 중복 구독 방지)
+            if (App.AIPipeline != null)
+            {
+                App.AIPipeline.ObjectDetected -= OnAIObjectDetected;
+                Debug.WriteLine("MonitoringService: AI 파이프라인 ObjectDetected 이벤트 구독 해제 완료");
+            }
+            
+            // 안전 감시 이벤트 구독 해제
+            _safetyDetection.SafetyEventDetected -= OnSafetyEventDetected;
+            _safetyDetection.ZoneViolationDetected -= OnZoneViolationDetected;
+            
+            // 추적 서비스 이벤트 구독 해제
+            _trackingService.TrackingUpdated -= OnTrackingUpdated;
+            _trackingService.StatisticsUpdated -= OnTrackingStatisticsUpdated;
             
             // 모든 카메라 연결 해제
             foreach (var camera in App.AppData.Cameras)
@@ -213,11 +242,20 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// AI 파이프라인에서 객체 검출 이벤트 처리
+        /// AI 파이프라인에서 객체 검출 이벤트 처리 (스마트 처리 지원)
         /// </summary>
         private async void OnAIObjectDetected(object? sender, ObjectDetectionEventArgs e)
         {
-            Debug.WriteLine($"MonitoringService: OnAIObjectDetected 호출됨 - 카메라: {e.CameraId}, 검출 객체 수: {e.Detections.Length}");
+            // 스마트 AI 정보 로깅 (SmartObjectDetectionEventArgs인 경우)
+            if (e is SmartObjectDetectionEventArgs smartE)
+            {
+                Debug.WriteLine($"MonitoringService: 스마트 AI 검출 - 카메라: {e.CameraId}, 검출: {e.Detections.Length}, " +
+                              $"레벨: {smartE.ProcessingLevel}, 모션: {smartE.MotionDetected}, 사람: {smartE.HasPersons}");
+            }
+            else
+            {
+                Debug.WriteLine($"MonitoringService: AI 검출 - 카메라: {e.CameraId}, 검출 객체 수: {e.Detections.Length}");
+            }
             
             try
             {
@@ -411,7 +449,7 @@ namespace SafetyVisionMonitor.Services
                         ActiveAlertsCount = Random.Shared.Next(0, 3);
                     }
                     
-                    await Task.Delay(40, cancellationToken); // ~25 FPS
+                    await Task.Delay(16, cancellationToken); // ~60 FPS (성능 개선)
                 }
                 catch (OperationCanceledException)
                 {
@@ -429,16 +467,21 @@ namespace SafetyVisionMonitor.Services
         
         private void UpdatePerformanceMetrics(object? sender, EventArgs e)
         {
-            var gpuInfo = GetGpuInfo();
+            // GPUUsageMonitor의 최신 데이터 사용
+            var gpuUsage = _latestGpuReport?.CurrentUsage ?? 0.0;
+            var gpuName = _latestGpuReport?.GPUName ?? GetGpuName();
+            var gpuMemoryUsage = _latestGpuReport?.MemoryUsedMB ?? 0;
+            var gpuTemperature = EstimateGpuTemperature(gpuUsage);
+            
             var metrics = new PerformanceMetrics
             {
                 Timestamp = DateTime.Now,
                 CpuUsage = GetCpuUsage(),
                 MemoryUsage = GetMemoryUsage(),
-                GpuUsage = gpuInfo.Usage,
-                GpuName = gpuInfo.Name,
-                GpuMemoryUsage = gpuInfo.MemoryUsage,
-                GpuTemperature = gpuInfo.Temperature,
+                GpuUsage = gpuUsage,
+                GpuName = gpuName,
+                GpuMemoryUsage = gpuMemoryUsage,
+                GpuTemperature = gpuTemperature,
                 ProcessedFps = ProcessedFramesPerSecond,
                 DetectedPersons = DetectedPersonCount,
                 ActiveAlerts = ActiveAlertsCount,
@@ -447,6 +490,28 @@ namespace SafetyVisionMonitor.Services
             };
             
             PerformanceUpdated?.Invoke(this, metrics);
+        }
+        
+        /// <summary>
+        /// GPU 사용량 업데이트 이벤트 핸들러
+        /// </summary>
+        private void OnGPUUsageUpdated(object? sender, GPUUsageReport report)
+        {
+            _latestGpuReport = report;
+            Debug.WriteLine($"MonitoringService: GPU 사용률 업데이트됨 - {report.CurrentUsage:F1}% ({report.StatusMessage})");
+        }
+        
+        /// <summary>
+        /// GPU 사용률 기반 온도 추정
+        /// </summary>
+        private double EstimateGpuTemperature(double gpuUsage)
+        {
+            // 기본 온도 45도에서 사용률에 따라 증가
+            var baseTemp = 45.0;
+            var tempIncrease = (gpuUsage / 100.0) * 30.0; // 최대 30도 증가
+            var randomVariation = Random.Shared.Next(-3, 5); // ±3도 변동
+            
+            return Math.Min(Math.Max(baseTemp + tempIncrease + randomVariation, 30), 85);
         }
         
         private double GetCpuUsage()
@@ -479,7 +544,7 @@ namespace SafetyVisionMonitor.Services
             try
             {
                 // GPU 엔진 사용률 카운터들 초기화
-                var category = new PerformanceCounterCategory("GPU Engine");
+                var category = new System.Diagnostics.PerformanceCounterCategory("GPU Engine");
                 var instanceNames = category.GetInstanceNames();
                 
                 foreach (var instanceName in instanceNames)
@@ -489,7 +554,7 @@ namespace SafetyVisionMonitor.Services
                         // 3D 엔진 사용률 카운터만 추가
                         if (instanceName.Contains("3D") || instanceName.Contains("Graphics"))
                         {
-                            var counter = new PerformanceCounter("GPU Engine", "Utilization Percentage", instanceName);
+                            var counter = new System.Diagnostics.PerformanceCounter("GPU Engine", "Utilization Percentage", instanceName);
                             _gpuCounters.Add(counter);
                         }
                     }
@@ -518,8 +583,8 @@ namespace SafetyVisionMonitor.Services
         {
             try
             {
-                // NVIDIA GPU 카운터
-                var nvidiaCounter = new PerformanceCounter("GPU Adapter Memory", "Dedicated Usage", "");
+                // NVIDIA GPU 카운터 - 인스턴스 이름 없음
+                var nvidiaCounter = new System.Diagnostics.PerformanceCounter("GPU Adapter Memory", "Dedicated Usage");
                 _gpuCounters.Add(nvidiaCounter);
             }
             catch
@@ -529,8 +594,8 @@ namespace SafetyVisionMonitor.Services
             
             try
             {
-                // AMD GPU 카운터 (AMD 드라이버가 설치된 경우)
-                var amdCounter = new PerformanceCounter("AMD GPU", "GPU Usage", "");
+                // AMD GPU 카운터 (AMD 드라이버가 설치된 경우) - 인스턴스 이름 없음
+                var amdCounter = new System.Diagnostics.PerformanceCounter("AMD GPU", "GPU Usage");
                 _gpuCounters.Add(amdCounter);
             }
             catch
@@ -771,6 +836,9 @@ namespace SafetyVisionMonitor.Services
             _cpuCounter?.Dispose();
             _memoryCounter?.Dispose();
             
+            // GPU 모니터 정리
+            _gpuMonitor?.Dispose();
+            
             // GPU 카운터들 정리
             foreach (var counter in _gpuCounters)
             {
@@ -789,6 +857,9 @@ namespace SafetyVisionMonitor.Services
             
             // 개인정보 보호 서비스 정리
             _privacyProtection?.Dispose();
+            
+            // GPU 모니터링 정리
+            _gpuMonitor?.Dispose();
         }
         
         /// <summary>

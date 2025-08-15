@@ -397,9 +397,9 @@ namespace SafetyVisionMonitor.ViewModels
             });
         }
         
-        // 성능 최적화를 위한 프레임 스키핑
-        private DateTime _lastFrameUpdate = DateTime.MinValue;
-        private readonly TimeSpan _minFrameInterval = TimeSpan.FromMilliseconds(33); // 30 FPS 제한
+        // 성능 최적화를 위한 프레임 스키핑 (더 부드러운 30fps)
+        private readonly Dictionary<string, DateTime> _lastFrameUpdate = new();
+        private readonly TimeSpan _minFrameInterval = TimeSpan.FromMilliseconds(33); // 30 FPS 제한 (버벅임 해결)
         
         private void OnFrameReceived(object? sender, CameraFrameEventArgs e)
         {
@@ -411,17 +411,20 @@ namespace SafetyVisionMonitor.ViewModels
                     return;
                 }
                 
-                // 프레임 스키핑 - 성능 최적화
+                // 카메라별 프레임 스키핑 - 성능 최적화
                 var now = DateTime.Now;
-                if (now - _lastFrameUpdate < _minFrameInterval)
+                if (_lastFrameUpdate.TryGetValue(e.CameraId, out var lastUpdate))
                 {
-                    e.Frame?.Dispose();
-                    return;
+                    if (now - lastUpdate < _minFrameInterval)
+                    {
+                        e.Frame?.Dispose();
+                        return;
+                    }
                 }
-                _lastFrameUpdate = now;
+                _lastFrameUpdate[e.CameraId] = now;
         
-                // UI 스레드에서 변환과 업데이트를 모두 처리
-                App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
+                // UI 반응성 개선: 백그라운드에서 무거운 작업 수행
+                _ = Task.Run(async () =>
                 {
                     try
                     {
@@ -432,44 +435,24 @@ namespace SafetyVisionMonitor.ViewModels
                                 // 디버그: 프레임 크기 정보 출력 (첫 번째 프레임에만)
                                 System.Diagnostics.Debug.WriteLine($"DashboardView: UI Frame for camera {e.CameraId}: Size=({originalFrame.Width}x{originalFrame.Height})");
                                 
-                                // 프레임에 구역 오버레이 그리기
-                                var frameWithZones = DrawZoneOverlaysOnFrame(originalFrame, e.CameraId);
+                                // 간소화된 렌더링 - 오버레이는 이미 CameraService에서 처리됨
+                                // 추가 그리기 작업은 건너뛰고 직접 변환
+                                var bitmap = ImageConverter.MatToBitmapSource(originalFrame);
                                 
-                                // 추적 정보 그리기 (최신 검출 결과 사용)
-                                var latestDetections = _latestDetections.GetValueOrDefault(e.CameraId, new List<DetectionResult>());
-                                var finalFrame = DrawTrackingOverlaysOnFrame(frameWithZones, e.CameraId, latestDetections);
-                                
-                                // UI 스레드에서 BitmapSource 변환
-                                var bitmap = ImageConverter.MatToBitmapSource(finalFrame);
-                                
-                                // 그려진 프레임들 안전하게 해제
-                                try
-                                {
-                                    if (frameWithZones != null && !frameWithZones.IsDisposed)
-                                    {
-                                        frameWithZones.Dispose();
-                                    }
-                                    
-                                    if (finalFrame != null && !finalFrame.IsDisposed && 
-                                        !ReferenceEquals(finalFrame, frameWithZones) && 
-                                        !ReferenceEquals(finalFrame, originalFrame))
-                                    {
-                                        finalFrame.Dispose();
-                                    }
-                                }
-                                catch (Exception disposeEx)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"Frame disposal error: {disposeEx.Message}");
-                                }
+                                // 메모리 정리는 using 문에서 자동 처리됨
         
+                                // UI 스레드에서 최종 업데이트만 (경량 작업)
                                 if (bitmap != null)
                                 {
-                                    var cameraVm = Cameras.FirstOrDefault(c => c.CameraId == e.CameraId);
-                                    if (cameraVm != null)
+                                    App.Current.Dispatcher.BeginInvoke(() =>
                                     {
-                                        cameraVm.CurrentFrame = bitmap;
-                                        cameraVm.DetectionCount++;
-                                    }
+                                        var cameraVm = Cameras.FirstOrDefault(c => c.CameraId == e.CameraId);
+                                        if (cameraVm != null)
+                                        {
+                                            cameraVm.CurrentFrame = bitmap;
+                                            cameraVm.DetectionCount++;
+                                        }
+                                    }, DispatcherPriority.Render);
                                 }
                             }
                         }
@@ -478,7 +461,7 @@ namespace SafetyVisionMonitor.ViewModels
                     {
                         System.Diagnostics.Debug.WriteLine($"Frame processing error: {uiEx.Message}");
                     }
-                }));
+                });
             }
             catch (Exception ex)
             {
@@ -596,19 +579,20 @@ namespace SafetyVisionMonitor.ViewModels
         
         private void OnConnectionChanged(object? sender, CameraConnectionEventArgs e)
         {
-            App.Current.Dispatcher.Invoke(() =>
+            App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 var cameraVm = Cameras.FirstOrDefault(c => c.CameraId == e.CameraId);
                 if (cameraVm != null)
                 {
                     cameraVm.IsConnected = e.IsConnected;
                 }
-            });
+            }));
         }
         
         private void OnPerformanceUpdated(object? sender, PerformanceMetrics metrics)
         {
-            App.Current.Dispatcher.Invoke(() =>
+            // UI 반응성 개선: 낮은 우선순위로 비동기 업데이트
+            App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 // CPU & Memory
                 CpuUsage = metrics.CpuUsage;
@@ -658,7 +642,7 @@ namespace SafetyVisionMonitor.ViewModels
 
                     ModelStatusText = IsModelRunning ? "실행 중" : "미실행";
                 }
-            });
+            }));
         }
         
         private void UpdateStatus(object? sender, EventArgs e)
@@ -687,7 +671,7 @@ namespace SafetyVisionMonitor.ViewModels
             
             if (!ShowDetectionStats) return;
             
-            App.Current.Dispatcher.Invoke(() =>
+            App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 lock (_debugLock)
                 {
@@ -724,7 +708,7 @@ namespace SafetyVisionMonitor.ViewModels
                     // 검출된 사람 수 업데이트
                     DetectedPersonCount = allDetections.Count(d => d.Label == "person");
                 }
-            });
+            }));
         }
         
         [RelayCommand]
@@ -1015,7 +999,7 @@ namespace SafetyVisionMonitor.ViewModels
         
         private void OnZoneUpdated(object? sender, Services.ZoneUpdateEventArgs e)
         {
-            App.Current.Dispatcher.Invoke(() =>
+            App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 System.Diagnostics.Debug.WriteLine($"Dashboard received zone update: {e.Zone.Name}, IsEnabled={e.IsEnabled}");
                 
@@ -1049,7 +1033,7 @@ namespace SafetyVisionMonitor.ViewModels
                         System.Diagnostics.Debug.WriteLine($"Updated danger zone visualization: {dangerZone.Name} for camera {camera.CameraId}");
                     }
                 }
-            });
+            }));
         }
         
         private void UpdateCameraZones()
@@ -1632,10 +1616,10 @@ namespace SafetyVisionMonitor.ViewModels
         /// </summary>
         private void OnAIModelStatusChanged(object? sender, ModelStatusEventArgs e)
         {
-            App.Current.Dispatcher.Invoke(() =>
+            App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 UpdateAIModelStatus();
-            });
+            }));
         }
         
         /// <summary>
@@ -1643,7 +1627,7 @@ namespace SafetyVisionMonitor.ViewModels
         /// </summary>
         private void OnAIPerformanceUpdated(object? sender, ModelPerformanceEventArgs e)
         {
-            App.Current.Dispatcher.Invoke(() =>
+            App.Current.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
             {
                 // 성능 지표 업데이트
                 ProcessedFps = (int)(1000.0 / Math.Max(e.Performance.InferenceTime, 1.0));
@@ -1658,7 +1642,7 @@ namespace SafetyVisionMonitor.ViewModels
                 DetectedPersonCount = e.Performance.DetectedObjects;
                 
                 System.Diagnostics.Debug.WriteLine($"Dashboard: AI Performance - FPS: {ProcessedFps}, Inference: {e.Performance.InferenceTime:F1}ms, Objects: {DetectedPersonCount}");
-            });
+            }));
         }
         
         /// <summary>

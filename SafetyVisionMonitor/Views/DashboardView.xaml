@@ -299,7 +299,8 @@
                             <TextBlock Grid.Column="1" Text="{Binding GpuUsage, StringFormat={}{0:F1}%}" 
                                      Foreground="White" HorizontalAlignment="Right" FontWeight="SemiBold"/>
                         </Grid>
-                        <ProgressBar Height="12" Value="{Binding GpuUsage}" Maximum="100" 
+                        <ProgressBar Height="12" Value="{Binding GpuUsage
+                        }" Maximum="100" 
                                    Margin="0,0,0,12" BorderThickness="0">
                             <ProgressBar.Foreground>
                                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">

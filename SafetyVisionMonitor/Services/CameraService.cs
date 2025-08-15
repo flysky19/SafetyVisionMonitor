@@ -227,8 +227,8 @@ namespace SafetyVisionMonitor.Services
             var uiHandlers = FrameReceivedForUI?.GetInvocationList();
             if (uiHandlers != null)
             {
-                // UI용 프레임 스키핑 (3프레임마다 1번)
-                if (!ShouldUpdateUI(originalFrame.CameraId))
+                // UI용 프레임 스키핑 최적화 - 더 부드러운 30fps 유지
+                if (!ShouldUpdateUI(originalFrame.CameraId, targetFps: 30))
                     return;
                 
                 // 최신 검출 결과 가져오기
@@ -243,44 +243,20 @@ namespace SafetyVisionMonitor.Services
                     // UI용은 해상도 축소 (1/4 크기)
                     var uiFrame = CreateLowResolutionFrame(originalFrame.Frame);
                     
-                    // 새로운 기능 기반 렌더링 파이프라인 사용
+                    // 간소화된 렌더링 - 성능 최적화
                     try
                     {
-                        // 프레임 처리 컨텍스트 생성 (원본 좌표 사용, 렌더링에서 스케일 적용)
-                        var context = new Features.FrameProcessingContext
-                        {
-                            CameraId = originalFrame.CameraId,
-                            Detections = detections.ToArray(), // List를 Array로 변환 (이중 스케일링 방지)
-                            TrackedPersons = trackedPersons,
-                            TrackingConfig = trackingConfig,
-                            Scale = 0.5f // UI는 1/2 스케일 - 렌더링 파이프라인에서 적용
-                        };
-
-                        // 오버레이 렌더링 파이프라인 적용
-                        if (App.OverlayPipeline != null)
-                        {
-                            uiFrame = App.OverlayPipeline.ProcessFrame(uiFrame, context);
-                            System.Diagnostics.Debug.WriteLine($"CameraService: Applied overlay pipeline for {originalFrame.CameraId}");
-                        }
-                        else
-                        {
-                            // 폴백: 기존 방식 사용
-                            System.Diagnostics.Debug.WriteLine($"CameraService: Using fallback rendering for {originalFrame.CameraId}");
-                            if (detections.Count > 0 || trackedPersons?.Count > 0)
-                            {
-                                RenderFrameWithTracking(uiFrame, detections, trackedPersons, trackingConfig);
-                            }
-                        }
-                    }
-                    catch (Exception pipelineEx)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"CameraService: Pipeline error for {originalFrame.CameraId}: {pipelineEx.Message}");
-                        
-                        // 오류 시 기존 방식으로 폴백
+                        // 검출 결과나 추적 정보가 있을 때만 렌더링
                         if (detections.Count > 0 || trackedPersons?.Count > 0)
                         {
+                            // 기존 방식 사용 (더 안정적이고 빠름)
                             RenderFrameWithTracking(uiFrame, detections, trackedPersons, trackingConfig);
                         }
+                    }
+                    catch (Exception renderEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"CameraService: Render error for {originalFrame.CameraId}: {renderEx.Message}");
+                        // 렌더링 오류 시 빈 프레임 사용
                     }
                     
                     try
@@ -297,26 +273,26 @@ namespace SafetyVisionMonitor.Services
             }
         }
         
-        private readonly Dictionary<string, int> _uiFrameCounters = new();
-        private bool ShouldUpdateUI(string cameraId)
+        private readonly Dictionary<string, DateTime> _lastUIUpdateTime = new();
+        private bool ShouldUpdateUI(string cameraId, int targetFps = 30)
         {
-            if (!_uiFrameCounters.ContainsKey(cameraId))
-                _uiFrameCounters[cameraId] = 0;
+            var now = DateTime.Now;
+            var minInterval = TimeSpan.FromMilliseconds(1000.0 / targetFps);
             
-            _uiFrameCounters[cameraId]++;
-            
-            // 활성 카메라 수에 따라 프레임 스키핑 조정 (UI 부드러움 우선)
-            var activeCameraCount = _connections.Count;
-            var frameSkip = activeCameraCount switch
+            if (!_lastUIUpdateTime.ContainsKey(cameraId))
             {
-                1 => 1,  // 1카메라: 모든 프레임 (FPS 1/1) - 최대 부드러움
-                2 => 1,  // 2카메라: 모든 프레임 (FPS 1/1)
-                3 => 2,  // 3카메라: 2프레임마다 1번 (FPS 1/2)
-                >= 4 => 2,  // 4카메라+: 2프레임마다 1번 (FPS 1/2)
-                _ => 2
-            };
+                _lastUIUpdateTime[cameraId] = now;
+                return true;
+            }
             
-            return _uiFrameCounters[cameraId] % frameSkip == 0;
+            var timeSinceLastUpdate = now - _lastUIUpdateTime[cameraId];
+            if (timeSinceLastUpdate >= minInterval)
+            {
+                _lastUIUpdateTime[cameraId] = now;
+                return true;
+            }
+            
+            return false;
         }
         
         private Mat CreateLowResolutionFrame(Mat originalFrame)
@@ -542,6 +518,12 @@ namespace SafetyVisionMonitor.Services
             // 카메라별로 최신 검출 결과 저장 (타임스탬프 포함)
             _latestDetections[e.CameraId] = e.Detections.ToList();
             _detectionsTimestamp[e.CameraId] = DateTime.Now;
+            
+            // 스마트 AI 추가 정보 활용 (SmartObjectDetectionEventArgs인 경우)
+            if (e is SmartObjectDetectionEventArgs smartE && smartE.HasPersons)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: 사람 감지됨 - {smartE.CameraId}, 처리레벨: {smartE.ProcessingLevel}");
+            }
         }
         
         public List<DetectionResult> GetLatestDetections(string cameraId)
@@ -868,8 +850,68 @@ namespace SafetyVisionMonitor.Services
                 // 자동 화이트밸런스
                 _capture.Set(VideoCaptureProperties.AutoWB, Camera.AutoWhiteBalance ? 1 : 0);
                 
-                // 버퍼 크기
-                _capture.Set(VideoCaptureProperties.BufferSize, 1);
+                // 버퍼 크기 - 실시간 성능 최적화
+                _capture.Set(VideoCaptureProperties.BufferSize, 1); // 최소 버퍼링
+                
+                // 추가 성능 설정 및 YUV420p 문제 해결
+                if (Camera.Type == CameraType.USB)
+                {
+                    _capture.Set(VideoCaptureProperties.FourCC, VideoWriter.FourCC('M', 'J', 'P', 'G')); // MJPEG 코덱 (지원 우수)
+                }
+                
+                // RGB 변환 활성화 (모든 타입에 적용 - YUV420p 문제 해결)
+                _capture.Set(VideoCaptureProperties.ConvertRgb, 1);
+                
+                // 비디오 파일의 경우 추가 색상 형식 처리
+                if (Camera.ConnectionString.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                    Camera.ConnectionString.EndsWith(".avi", StringComparison.OrdinalIgnoreCase) ||
+                    Camera.ConnectionString.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
+                    Camera.ConnectionString.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase))
+                {
+                    System.Diagnostics.Debug.WriteLine($"Configuring color format for video file: {Camera.ConnectionString}");
+                    
+                    // 비디오 파일용 색상 변환 강화
+                    try
+                    {
+                        // BGR24 형식 강제 시도
+                        _capture.Set(VideoCaptureProperties.FourCC, VideoWriter.FourCC('B', 'G', 'R', '3'));
+                        
+                        // 테스트 프레임으로 YUV420p 문제 확인
+                        using (var testFrame = new Mat())
+                        {
+                            _capture.Read(testFrame);
+                            if (!testFrame.Empty())
+                            {
+                                var mean = Cv2.Mean(testFrame);
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"Video file color test: BGR=({mean.Val0:F2}, {mean.Val1:F2}, {mean.Val2:F2}), " +
+                                    $"Channels={testFrame.Channels()}, Type={testFrame.Type()}");
+                                    
+                                // 빨간색만 나오는 YUV420p 문제 감지
+                                if (mean.Val0 > 100 && mean.Val1 < 10 && mean.Val2 < 10)
+                                {
+                                    System.Diagnostics.Debug.WriteLine("⚠️ YUV420p 색상 문제 감지됨 - 추가 처리 필요");
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception videoEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Video file color configuration warning: {videoEx.Message}");
+                    }
+                }
+                
+                // 추가 포맷 설정
+                try 
+                {
+                    // BGR24 포맷으로 강제 설정 시도
+                    _capture.Set(VideoCaptureProperties.Format, -1); // 자동 포맷
+                    _capture.Set((VideoCaptureProperties)50, 0); // CAP_PROP_CODEC_PIXEL_FORMAT 리셋
+                } 
+                catch (Exception formatEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Format setting warning: {formatEx.Message}");
+                }
                 
                 var finalWidth = _capture.Get(VideoCaptureProperties.FrameWidth);
                 var finalHeight = _capture.Get(VideoCaptureProperties.FrameHeight);
@@ -989,24 +1031,52 @@ namespace SafetyVisionMonitor.Services
                                 int cameraIndex = int.Parse(Camera.ConnectionString);
                                 
                                 // DirectShow 백엔드 사용 (Windows에서 안정적)
-                                _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.MSMF);
+                                // YUV420p 문제 해결을 위해 DirectShow 우선 사용
+                                _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.DSHOW);
+                                
+                                if (!_capture.IsOpened())
+                                {
+                                    _capture.Dispose();
+                                    _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.MSMF);
+                                }
                                 
                                 if (!_capture.IsOpened())
                                 {
                                     _capture.Dispose();
                                     _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.ANY);
                                 }
-                                
-                                if (!_capture.IsOpened())
-                                {
-                                    _capture.Dispose();
-                                    _capture = new VideoCapture(cameraIndex, VideoCaptureAPIs.DSHOW);
-                                }
                             }
                             else
                             {
-                                // YouTube(변환된 스트림 URL), RTSP, File 등
-                                _capture = new VideoCapture(connectionString);
+                                // File, YouTube, RTSP 등 - 파일 기반 비디오는 특별한 백엔드 설정 필요
+                                if (connectionString.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                                    connectionString.EndsWith(".avi", StringComparison.OrdinalIgnoreCase) ||
+                                    connectionString.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
+                                    connectionString.EndsWith(".mkv", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    // MP4/동영상 파일 - MSMF 백엔드 우선 사용 (Windows에서 YUV420p 처리 개선)
+                                    System.Diagnostics.Debug.WriteLine($"Detected video file: {connectionString}");
+                                    _capture = new VideoCapture(connectionString, VideoCaptureAPIs.MSMF);
+                                    
+                                    if (!_capture.IsOpened())
+                                    {
+                                        System.Diagnostics.Debug.WriteLine("MSMF backend failed, trying FFMPEG...");
+                                        _capture?.Dispose();
+                                        _capture = new VideoCapture(connectionString, VideoCaptureAPIs.FFMPEG);
+                                    }
+                                    
+                                    if (!_capture.IsOpened())
+                                    {
+                                        System.Diagnostics.Debug.WriteLine("FFMPEG backend failed, trying ANY...");
+                                        _capture?.Dispose();
+                                        _capture = new VideoCapture(connectionString, VideoCaptureAPIs.ANY);
+                                    }
+                                }
+                                else
+                                {
+                                    // YouTube(변환된 스트림 URL), RTSP 등
+                                    _capture = new VideoCapture(connectionString);
+                                }
                             }
                             
                             if (_capture?.IsOpened() != true)
@@ -1321,7 +1391,9 @@ namespace SafetyVisionMonitor.Services
                         // }
                     }
             
-                    Thread.Sleep(1000 / (int)Camera.Fps);
+                    // 성능 최적화: 대기 시간 줄임
+                    var sleepTime = Math.Max(1, (int)(1000.0 / Camera.Fps / 2)); // FPS의 절반로 설정
+                    Thread.Sleep(sleepTime);
                 }
                 catch (Exception ex)
                 {

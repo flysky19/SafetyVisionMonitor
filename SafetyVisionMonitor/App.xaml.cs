@@ -28,7 +28,7 @@ public partial class App
 
     // AI 서비스
     public static AIInferenceService AIInferenceService { get; private set; } = null!;
-    public static AIProcessingPipeline AIPipeline { get; private set; } = null!;
+    public static EnhancedAIProcessingPipeline AIPipeline { get; private set; } = null!;
     
     // 백그라운드 추적 서비스 (MonitoringService를 통해 접근)
     public static BackgroundTrackingService TrackingService => MonitoringService.GetTrackingService();
@@ -68,9 +68,9 @@ public partial class App
             Zone3D.NotificationService = new ZoneNotificationService();
 
             // AI 서비스 초기화 (CameraService보다 먼저)
-            splash.UpdateStatus("AI 서비스 초기화 중...");
+            splash.UpdateStatus("스마트 AI 서비스 초기화 중...");
             AIInferenceService = new AIInferenceService();
-            AIPipeline = new AIProcessingPipeline(AIInferenceService);
+            AIPipeline = new EnhancedAIProcessingPipeline(AIInferenceService);
 
             // YOLOv8 멀티태스크 엔진 초기화 - 일시적으로 비활성화
             splash.UpdateStatus("AI 모델 초기화 중...");
@@ -212,15 +212,24 @@ public partial class App
     {
         try
         {
-            // OpenCV 로그 레벨을 Error로 설정하여 불필요한 경고 메시지 줄이기
-            OpenCvSharp.Cv2.SetLogLevel(OpenCvSharp.LogLevel.ERROR);
+            // OpenCV 로그 레벨을 FATAL로 설정하여 YUV420p 경고 메시지 숨기기
+            OpenCvSharp.Cv2.SetLogLevel(OpenCvSharp.LogLevel.FATAL);
             
-            // OpenCV 백엔드 환경 변수 설정
+            // OpenCV 백엔드 환경 변수 설정 - YUV420p 문제 해결
             Environment.SetEnvironmentVariable("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;udp");
             Environment.SetEnvironmentVariable("OPENCV_VIDEOIO_PRIORITY_MSMF", "0"); // MSMF 우선순위 낮춤
             Environment.SetEnvironmentVariable("OPENCV_VIDEOIO_PRIORITY_DSHOW", "1000"); // DirectShow 우선순위 높임
             
-            System.Diagnostics.Debug.WriteLine("OpenCV environment configured successfully");
+            // FFmpeg 백엔드 YUV420p 처리 개선
+            Environment.SetEnvironmentVariable("OPENCV_FFMPEG_LOGLEVEL", "-8"); // AV_LOG_QUIET
+            Environment.SetEnvironmentVariable("OPENCV_VIDEOIO_PRIORITY_FFMPEG", "500"); // FFmpeg 우선순위 중간
+            Environment.SetEnvironmentVariable("OPENCV_FFMPEG_CAPTURE_OPTIONS", "pixel_format;bgr24"); // BGR24 강제
+            
+            // FFmpeg 로깅 완전 비활성화
+            Environment.SetEnvironmentVariable("AV_LOG_FORCE_NOCOLOR", "1");
+            Environment.SetEnvironmentVariable("AV_LOG_FORCE_COLOR", "0");
+            
+            System.Diagnostics.Debug.WriteLine("OpenCV environment configured successfully (YUV420p warnings suppressed)");
         }
         catch (Exception ex)
         {
