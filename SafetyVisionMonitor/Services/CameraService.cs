@@ -504,12 +504,12 @@ namespace SafetyVisionMonitor.Services
         {
             return label switch
             {
-                "person" => new Scalar(0, 0, 255),      // 빨간색
+                "person" => new Scalar(0, 255, 0),      // 초록색
                 "car" => new Scalar(255, 0, 0),         // 파란색
                 "truck" => new Scalar(255, 255, 0),     // 청록색
                 "bicycle" => new Scalar(0, 255, 255),   // 노란색
                 "motorcycle" => new Scalar(255, 0, 255), // 자홍색
-                _ => new Scalar(0, 255, 0)               // 기본 녹색
+                _ => new Scalar(128, 128, 128)          // 기본 회색
             };
         }
         

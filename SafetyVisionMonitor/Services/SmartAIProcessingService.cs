@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using OpenCvSharp;
 using SafetyVisionMonitor.Models;
 using SafetyVisionMonitor.Shared.Models;
+using SafetyVisionMonitor.Services;
 
 namespace SafetyVisionMonitor.Services
 {
@@ -132,8 +133,8 @@ namespace SafetyVisionMonitor.Services
                 // GPU 활용을 위해 더 적극적으로 AI 처리
                 if (shouldProcessAI || state.CurrentLevel >= ProcessingLevel.ObjectDetection)
                 {
-                    // 객체 검출 실행
-                    var detections = await ProcessWithAI(state, frame);
+                    // 안전 모니터링 구역 설정에 따른 객체 검출 실행
+                    var detections = await ProcessWithAI(state, frame, cameraId);
                     result.Detections = detections;
                     result.ProcessingLevel = state.CurrentLevel;
                     state.LastAIProcessTime = DateTime.Now;
@@ -306,6 +307,71 @@ namespace SafetyVisionMonitor.Services
         }
 
         /// <summary>
+        /// AI 처리 실행 (안전 모니터링 구역 최적화 적용)
+        /// </summary>
+        private async Task<DetectionResult[]> ProcessWithAI(CameraState state, Mat frame, string cameraId)
+        {
+            try
+            {
+                // 안전 모니터링 구역 설정 확인
+                var safetySettings = SafetySettingsManager.Instance.CurrentSettings;
+                
+                if (safetySettings.IsSafetyMonitoringZoneEnabled)
+                {
+                    // 안전 구역 정보 가져오기 (아크릴 설정에서)
+                    var safetyZonePoints = await GetSafetyZonePointsAsync(cameraId);
+                    
+                    if (safetyZonePoints != null && safetyZonePoints.Count >= 3)
+                    {
+                        // 크롭 기반 추론 (성능 최적화)
+                        Debug.WriteLine($"SmartAI: Using safety zone crop optimization for {cameraId}");
+                        return await _aiService.InferFrameWithSafetyZoneAsync(cameraId, frame, safetyZonePoints);
+                    }
+                }
+                
+                // 기본 전체 프레임 추론
+                Debug.WriteLine($"SmartAI: Using full frame inference for {cameraId}");
+                return await _aiService.InferFrameAsync(cameraId, frame);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"SmartAI ProcessWithAI error [{cameraId}]: {ex.Message}");
+                return Array.Empty<DetectionResult>();
+            }
+        }
+        
+        /// <summary>
+        /// 카메라의 안전 구역 좌표 가져오기
+        /// </summary>
+        private async Task<List<System.Drawing.Point>?> GetSafetyZonePointsAsync(string cameraId)
+        {
+            try
+            {
+                // 아크릴 설정에서 안전 구역 좌표 로드
+                var configPath = System.IO.Path.Combine("Config", "Acrylic", $"{cameraId}_boundary.json");
+                
+                if (System.IO.File.Exists(configPath))
+                {
+                    var json = await System.IO.File.ReadAllTextAsync(configPath);
+                    var boundaryData = System.Text.Json.JsonSerializer.Deserialize<BoundaryData>(json);
+                    
+                    if (boundaryData?.Points != null && boundaryData.Points.Count >= 3)
+                    {
+                        // WPF Point를 System.Drawing.Point로 변환
+                        return boundaryData.Points.Select(p => new System.Drawing.Point((int)p.X, (int)p.Y)).ToList();
+                    }
+                }
+                
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Error loading safety zone for {cameraId}: {ex.Message}");
+                return null;
+            }
+        }
+        
+        /// <summary>
         /// 처리 통계 조회
         /// </summary>
         public Dictionary<string, object> GetProcessingStatistics()
@@ -345,6 +411,15 @@ namespace SafetyVisionMonitor.Services
         }
     }
 
+    /// <summary>
+    /// 경계선 데이터 (JSON 직렬화용)
+    /// </summary>
+    internal class BoundaryData
+    {
+        public List<System.Windows.Point>? Points { get; set; }
+        public string TrackingMode { get; set; } = "InteriorOnly";
+    }
+    
     /// <summary>
     /// 스마트 검출 결과
     /// </summary>

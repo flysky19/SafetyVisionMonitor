@@ -14,7 +14,7 @@ namespace SafetyVisionMonitor.Services
     /// <summary>
     /// AI 추론 서비스 - YOLO 모델 관리 및 실시간 객체 검출
     /// </summary>
-    public class AIInferenceService : IDisposable
+    public partial class AIInferenceService : IDisposable
     {
         private YOLOv8Engine? _currentEngine;
         private YOLOv8MultiTaskEngine? _yolov8MultiTaskEngine;
@@ -222,7 +222,80 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 단일 프레임에서 객체 검출
+        /// 안전 모니터링 구역 크롭 기반 객체 검출 (성능 최적화)
+        /// </summary>
+        public async Task<DetectionResult[]> InferFrameWithSafetyZoneAsync(string cameraId, Mat frame, List<System.Drawing.Point> safetyZonePoints)
+        {
+            if (frame.Empty() || safetyZonePoints == null || safetyZonePoints.Count < 3)
+            {
+                // 안전 구역이 없으면 전체 프레임 처리
+                return await InferFrameAsync(cameraId, frame);
+            }
+
+            try
+            {
+                _performanceTimer.Restart();
+                
+                // 1. 안전 구역 바운딩 박스 계산
+                var boundingRect = CalculateBoundingRect(safetyZonePoints);
+                
+                // 2. 구역 크롭 (여유분 10% 추가로 경계 객체 누락 방지)
+                var expandedRect = ExpandRect(boundingRect, frame.Width, frame.Height, 0.1f);
+                using var croppedFrame = new Mat(frame, expandedRect);
+                
+                // 3. 크롭된 이미지로 추론
+                DetectionResult[] croppedDetections;
+                if (_useMultiTaskEngine && _yolov8MultiTaskEngine != null && _activeModel != null)
+                {
+                    croppedDetections = await _yolov8MultiTaskEngine.RunObjectDetectionAsync(croppedFrame, (float)_activeModel.Confidence);
+                }
+                else if (_currentEngine != null && _activeModel != null)
+                {
+                    croppedDetections = await Task.Run(() =>
+                        _currentEngine.InferFrame(croppedFrame, (float)_activeModel.Confidence, 0.45f));
+                }
+                else
+                {
+                    return Array.Empty<DetectionResult>();
+                }
+                
+                // 4. 좌표를 원본 프레임 기준으로 변환
+                var adjustedDetections = ConvertCroppedCoordinates(croppedDetections, expandedRect, cameraId);
+                
+                // 5. 안전 구역 내부 객체만 필터링
+                var safetyZoneDetections = FilterDetectionsByZone(adjustedDetections, safetyZonePoints);
+                
+                _performanceTimer.Stop();
+                
+                // 성능 통계 업데이트
+                var inferenceTime = _performanceTimer.Elapsed.TotalMilliseconds;
+                UpdatePerformanceMetrics(inferenceTime, safetyZoneDetections.Length);
+                
+                // 이벤트 발생
+                if (safetyZoneDetections.Length > 0)
+                {
+                    ObjectDetected?.Invoke(this, new ObjectDetectionEventArgs
+                    {
+                        CameraId = cameraId,
+                        Detections = safetyZoneDetections,
+                        ProcessingTime = inferenceTime
+                    });
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"SafetyZone Crop Inference: {inferenceTime:F1}ms, Objects: {safetyZoneDetections.Length} (Crop ratio: {(float)croppedFrame.Width * croppedFrame.Height / (frame.Width * frame.Height):P1})");
+                
+                return safetyZoneDetections;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"AIInferenceService: SafetyZone inference error: {ex.Message}");
+                // 오류 시 전체 프레임 처리로 폴백
+                return await InferFrameAsync(cameraId, frame);
+            }
+        }
+        
+        /// <summary>
+        /// 단일 프레임에서 객체 검출 (전체 프레임)
         /// </summary>
         public async Task<DetectionResult[]> InferFrameAsync(string cameraId, Mat frame)
         {
@@ -816,5 +889,107 @@ namespace SafetyVisionMonitor.Services
         public int ClassCount { get; set; }
         public long TotalFramesProcessed { get; set; }
         public double AverageInferenceTime { get; set; }
+    }
+    
+    // AIInferenceService 헬퍼 메서드들 (부분 클래스 확장)
+    public partial class AIInferenceService
+    {
+        /// <summary>
+        /// 안전 구역 포인트들로부터 바운딩 사각형 계산
+        /// </summary>
+        private OpenCvSharp.Rect CalculateBoundingRect(List<System.Drawing.Point> points)
+        {
+            if (points.Count == 0) return new OpenCvSharp.Rect();
+            
+            var minX = points.Min(p => p.X);
+            var minY = points.Min(p => p.Y);
+            var maxX = points.Max(p => p.X);
+            var maxY = points.Max(p => p.Y);
+            
+            return new OpenCvSharp.Rect(minX, minY, maxX - minX, maxY - minY);
+        }
+        
+        /// <summary>
+        /// 바운딩 사각형을 지정된 비율만큼 확장 (경계 객체 누락 방지)
+        /// </summary>
+        private OpenCvSharp.Rect ExpandRect(OpenCvSharp.Rect rect, int frameWidth, int frameHeight, float expandRatio)
+        {
+            var expandX = (int)(rect.Width * expandRatio);
+            var expandY = (int)(rect.Height * expandRatio);
+            
+            var newX = Math.Max(0, rect.X - expandX);
+            var newY = Math.Max(0, rect.Y - expandY);
+            var newWidth = Math.Min(frameWidth - newX, rect.Width + expandX * 2);
+            var newHeight = Math.Min(frameHeight - newY, rect.Height + expandY * 2);
+            
+            return new OpenCvSharp.Rect(newX, newY, newWidth, newHeight);
+        }
+        
+        /// <summary>
+        /// 크롭된 좌표를 원본 프레임 좌표로 변환
+        /// </summary>
+        private DetectionResult[] ConvertCroppedCoordinates(DetectionResult[] detections, OpenCvSharp.Rect cropRect, string cameraId)
+        {
+            foreach (var detection in detections)
+            {
+                // 바운딩 박스 좌표를 원본 프레임 기준으로 변환
+                detection.BoundingBox = new System.Drawing.RectangleF(
+                    detection.BoundingBox.X + cropRect.X,
+                    detection.BoundingBox.Y + cropRect.Y,
+                    detection.BoundingBox.Width,
+                    detection.BoundingBox.Height
+                );
+                
+                detection.CameraId = cameraId;
+            }
+            
+            return detections;
+        }
+        
+        /// <summary>
+        /// 안전 구역 내부에 있는 검출 결과만 필터링
+        /// </summary>
+        private DetectionResult[] FilterDetectionsByZone(DetectionResult[] detections, List<System.Drawing.Point> safetyZonePoints)
+        {
+            var filteredDetections = new List<DetectionResult>();
+            
+            foreach (var detection in detections)
+            {
+                // 객체의 중심점이 안전 구역 내부에 있는지 확인
+                var centerPoint = new System.Drawing.Point(
+                    (int)detection.Center.X,
+                    (int)detection.Center.Y
+                );
+                
+                if (IsPointInPolygon(centerPoint, safetyZonePoints))
+                {
+                    filteredDetections.Add(detection);
+                }
+            }
+            
+            return filteredDetections.ToArray();
+        }
+        
+        /// <summary>
+        /// 점이 다각형 내부에 있는지 확인 (Ray Casting Algorithm)
+        /// </summary>
+        private bool IsPointInPolygon(System.Drawing.Point point, List<System.Drawing.Point> polygon)
+        {
+            if (polygon.Count < 3) return false;
+            
+            bool inside = false;
+            int j = polygon.Count - 1;
+            
+            for (int i = 0; i < polygon.Count; j = i++)
+            {
+                if (((polygon[i].Y > point.Y) != (polygon[j].Y > point.Y)) &&
+                    (point.X < (polygon[j].X - polygon[i].X) * (point.Y - polygon[i].Y) / (polygon[j].Y - polygon[i].Y) + polygon[i].X))
+                {
+                    inside = !inside;
+                }
+            }
+            
+            return inside;
+        }
     }
 }

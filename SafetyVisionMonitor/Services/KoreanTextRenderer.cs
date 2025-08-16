@@ -20,12 +20,18 @@ namespace SafetyVisionMonitor.Services
         private static readonly string[] KoreanFonts = new[]
         {
             "Malgun Gothic",      // 맑은 고딕 (Windows 기본)
+            "맑은 고딕",          // 한글 이름
             "NanumGothic",       // 나눔고딕
+            "나눔고딕",          // 한글 이름
             "Gulim",             // 굴림
+            "굴림",              // 한글 이름
             "Dotum",             // 돋움
+            "돋움",              // 한글 이름
             "Batang",            // 바탕
+            "바탕",              // 한글 이름
             "Arial Unicode MS",   // 유니코드 지원
-            "Microsoft Sans Serif"
+            "Microsoft Sans Serif",
+            "Segoe UI"           // Windows 10/11 기본 UI 폰트
         };
         
         private SKTypeface? _defaultTypeface;
@@ -37,22 +43,33 @@ namespace SafetyVisionMonitor.Services
         
         private void InitializeDefaultTypeface()
         {
+            System.Diagnostics.Debug.WriteLine("KoreanTextRenderer: Initializing fonts...");
+            
             // 사용 가능한 첫 번째 한글 폰트 찾기
             foreach (var fontName in KoreanFonts)
             {
                 try
                 {
-                    var typeface = SKTypeface.FromFamilyName(fontName);
-                    if (typeface != null)
+                    var typeface = SKTypeface.FromFamilyName(fontName, SKFontStyle.Normal);
+                    if (typeface != null && typeface.FamilyName != null)
                     {
-                        _defaultTypeface = typeface;
-                        System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Using font '{fontName}'");
-                        break;
+                        // 한글 테스트 문자열로 폰트 검증
+                        using var paint = new SKPaint { Typeface = typeface, TextSize = 12 };
+                        var testText = "가나다";
+                        var bounds = new SKRect();
+                        paint.MeasureText(testText, ref bounds);
+                        
+                        if (bounds.Width > 0 && bounds.Height > 0)
+                        {
+                            _defaultTypeface = typeface;
+                            System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Successfully loaded font '{fontName}' (FamilyName: {typeface.FamilyName})");
+                            break;
+                        }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // 폰트를 찾을 수 없음, 다음 시도
+                    System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Failed to load font '{fontName}': {ex.Message}");
                 }
             }
             
@@ -60,7 +77,7 @@ namespace SafetyVisionMonitor.Services
             if (_defaultTypeface == null)
             {
                 _defaultTypeface = SKTypeface.Default;
-                System.Diagnostics.Debug.WriteLine("KoreanTextRenderer: Using system default font");
+                System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Using system default font (FamilyName: {_defaultTypeface.FamilyName})");
             }
         }
         
@@ -71,10 +88,22 @@ namespace SafetyVisionMonitor.Services
             int thickness = 1, bool drawBackground = false, Scalar? backgroundColor = null)
         {
             if (string.IsNullOrEmpty(text) || img == null || img.IsDisposed)
+            {
+                System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer.PutText: Invalid input - text: '{text}', img null: {img == null}, disposed: {img?.IsDisposed}");
                 return;
+            }
+            
+            System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer.PutText: Rendering '{text}' at ({org.X}, {org.Y}) with scale {fontScale}");
             
             try
             {
+                // 폰트 체크
+                if (_defaultTypeface == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("KoreanTextRenderer: Default typeface is null!");
+                    throw new InvalidOperationException("Default typeface not initialized");
+                }
+                
                 // 폰트 크기 계산 (OpenCV fontScale을 픽셀 크기로 변환)
                 float fontSize = (float)(fontScale * 20); // 기본 크기 조정
                 
@@ -93,6 +122,8 @@ namespace SafetyVisionMonitor.Services
                 int textWidth = (int)Math.Ceiling(textBounds.Width);
                 int textHeight = (int)Math.Ceiling(textBounds.Height);
                 
+                System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Text bounds - Width: {textWidth}, Height: {textHeight}");
+                
                 // 배경 그리기 (옵션)
                 if (drawBackground && backgroundColor.HasValue)
                 {
@@ -104,19 +135,24 @@ namespace SafetyVisionMonitor.Services
                         bgColor, -1);
                 }
                 
-                // SkiaSharp 비트맵 생성
-                using var bitmap = new SKBitmap(textWidth, textHeight);
+                // SkiaSharp 비트맵 생성 (배경색 포함)
+                using var bitmap = new SKBitmap(textWidth, textHeight, SKColorType.Bgra8888, SKAlphaType.Premul);
                 using var canvas = new SKCanvas(bitmap);
                 
-                // 투명 배경
-                canvas.Clear(SKColors.Transparent);
+                // 배경 처리
+                if (drawBackground && backgroundColor.HasValue)
+                {
+                    var bgColor = backgroundColor.Value;
+                    canvas.Clear(new SKColor((byte)bgColor.Val2, (byte)bgColor.Val1, (byte)bgColor.Val0, 255));
+                }
+                else
+                {
+                    canvas.Clear(SKColors.Transparent);
+                }
                 
                 // 텍스트 그리기
                 canvas.DrawText(text, -textBounds.Left, -textBounds.Top, paint);
                 canvas.Flush();
-                
-                // SKBitmap을 Mat으로 변환
-                using var textMat = ConvertSKBitmapToMat(bitmap);
                 
                 // 대상 위치 계산
                 int x = org.X;
@@ -130,16 +166,71 @@ namespace SafetyVisionMonitor.Services
                 
                 if (x >= 0 && y >= 0 && x + textWidth <= img.Width && y + textHeight <= img.Height)
                 {
-                    // 알파 블렌딩으로 텍스트 오버레이
-                    var roi = img[new Rect(x, y, textWidth, textHeight)];
-                    AlphaBlend(textMat, roi);
+                    try
+                    {
+                        // 간단한 오버레이 방식 사용
+                        using var textMat = new Mat(textHeight, textWidth, MatType.CV_8UC4);
+                        
+                        // SKBitmap 픽셀 데이터를 Mat으로 복사
+                        var pixels = bitmap.Pixels;
+                        var pixelBytes = new byte[pixels.Length * 4];
+                        for (int i = 0; i < pixels.Length; i++)
+                        {
+                            var pixel = pixels[i];
+                            pixelBytes[i * 4] = pixel.Blue;
+                            pixelBytes[i * 4 + 1] = pixel.Green;
+                            pixelBytes[i * 4 + 2] = pixel.Red;
+                            pixelBytes[i * 4 + 3] = pixel.Alpha;
+                        }
+                        Marshal.Copy(pixelBytes, 0, textMat.Data, pixelBytes.Length);
+                        
+                        // 단순 복사 (배경이 있는 경우) 또는 알파 블렌딩
+                        if (drawBackground && backgroundColor.HasValue)
+                        {
+                            // 배경이 있으면 단순히 BGR로 변환하여 복사
+                            using var bgrMat = new Mat();
+                            Cv2.CvtColor(textMat, bgrMat, ColorConversionCodes.BGRA2BGR);
+                            bgrMat.CopyTo(img[new Rect(x, y, textWidth, textHeight)]);
+                        }
+                        else
+                        {
+                            // 투명 배경인 경우 알파 블렌딩
+                            var roi = img[new Rect(x, y, textWidth, textHeight)];
+                            SimpleAlphaBlend(textMat, roi);
+                        }
+                        
+                        System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Successfully rendered text at ({x}, {y})");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Error in overlay: {ex.Message}");
+                        throw;
+                    }
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Error rendering text: {ex.Message}");
-                // 폴백: OpenCV 기본 텍스트 렌더링 (한글은 ???로 표시됨)
-                Cv2.PutText(img, text, org, HersheyFonts.HersheySimplex, fontScale, color, thickness);
+                System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Error rendering text '{text}': {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: Stack trace: {ex.StackTrace}");
+                
+                // 폴백: 기본 OpenCV 렌더링 시도 (디버깅용)
+                // 한글은 지원하지 않지만 시스템 상태 확인용
+                try
+                {
+                    // 간단한 사각형과 함께 디버그 표시
+                    if (drawBackground)
+                    {
+                        var bgColor = backgroundColor ?? new Scalar(128, 128, 128);
+                        Cv2.Rectangle(img, new Rect(org.X, org.Y - 20, 100, 25), bgColor, -1);
+                    }
+                    
+                    // 에러 표시
+                    Cv2.PutText(img, "[Korean]", org, HersheyFonts.HersheySimplex, fontScale * 0.8, color, thickness);
+                }
+                catch
+                {
+                    // 최종 폴백: 아무것도 그리지 않음
+                }
             }
         }
         
@@ -185,7 +276,42 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 알파 블렌딩으로 텍스트 오버레이
+        /// 간단한 알파 블렌딩
+        /// </summary>
+        private void SimpleAlphaBlend(Mat src, Mat dst)
+        {
+            if (src.Channels() != 4 || dst.Channels() != 3)
+                return;
+            
+            try
+            {
+                // BGRA를 BGR로 변환하면서 알파 채널 적용
+                using var bgr = new Mat();
+                
+                // 채널 분리
+                var srcChannels = src.Split();
+                Cv2.Merge(new[] { srcChannels[0], srcChannels[1], srcChannels[2] }, bgr);
+                var alpha = srcChannels[3];
+                
+                // 알파 값이 있는 픽셀만 복사
+                using var mask = new Mat();
+                Cv2.Threshold(alpha, mask, 0, 255, ThresholdTypes.Binary);
+                bgr.CopyTo(dst, mask);
+                
+                // 메모리 해제
+                foreach (var channel in srcChannels)
+                    channel.Dispose();
+                
+                // alpha는 srcChannels[3]로 이미 해제됨
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"KoreanTextRenderer: SimpleAlphaBlend error: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
+        /// 알파 블렌딩으로 텍스트 오버레이 (복잡한 버전 - 백업용)
         /// </summary>
         private void AlphaBlend(Mat src, Mat dst)
         {

@@ -24,7 +24,7 @@ namespace SafetyVisionMonitor.Services
         private int _frameWidth;
         private int _frameHeight;
         private bool _disposed;
-        private readonly KoreanTextRenderer _koreanTextRenderer = new();
+        // private readonly KoreanTextRenderer _koreanTextRenderer = new(); // 한글 렌더러 제거
 
         /// <summary>
         /// 현재 비트맵 (UI 바인딩용)
@@ -199,26 +199,30 @@ namespace SafetyVisionMonitor.Services
                     (int)detection.BoundingBox.Height
                 );
 
-                // 색상 결정 (사람은 빨간색, 다른 객체는 녹색)
-                var color = detection.Label == "person" 
-                    ? new Scalar(0, 0, 255) // 빨간색 (BGR)
-                    : new Scalar(0, 255, 0); // 녹색
+                // 색상 결정 (객체별 색상)
+                var color = GetDetectionColor(detection.Label);
 
-                // 박스 그리기
-                Cv2.Rectangle(frame, rect, color, 2);
+                // 박스 그리기 (사람은 얇은 선, 나머지는 기본)
+                int thickness = detection.Label == "person" ? 1 : 2;
+                Cv2.Rectangle(frame, rect, color, thickness);
 
                 // 라벨 텍스트 (트래킹 ID 포함 - 설정에 따라)
                 var label = detection.TrackingId.HasValue && (config?.ShowTrackingId ?? true)
                     ? $"{detection.DisplayName} ID:{detection.TrackingId} ({detection.Confidence:P0})"
                     : $"{detection.DisplayName} ({detection.Confidence:P0})";
                 
-                // 텍스트 크기 측정 (한글 지원)
-                var textSize = _koreanTextRenderer.GetTextSize(label, 0.5);
+                // OpenCV 기본 텍스트 사용
+                double fontScale = 0.5;
+                int textThickness = 1;
+                int baseline = 0;
+                var textSize = Cv2.GetTextSize(label, HersheyFonts.HersheySimplex, fontScale, textThickness, out baseline);
+                
+                // 텍스트 배경 영역
                 var textRect = new Rect(
                     rect.X,
-                    rect.Y - textSize.Height - 5,
-                    textSize.Width + 10,
-                    textSize.Height + 5
+                    rect.Y - textSize.Height - 8,
+                    textSize.Width + 8,
+                    textSize.Height + 8
                 );
 
                 // 텍스트가 화면 밖으로 나가지 않도록 조정
@@ -227,14 +231,17 @@ namespace SafetyVisionMonitor.Services
                     textRect.Y = rect.Y + rect.Height + 5;
                 }
 
-                // 한글 텍스트 렌더링 (배경 포함)
-                _koreanTextRenderer.PutText(frame, label,
-                    new OpenCvSharp.Point(rect.X + 2, rect.Y - 5),
-                    0.5,
+                // 텍스트 배경 그리기
+                Cv2.Rectangle(frame, textRect, color, -1);
+                
+                // 텍스트 그리기 (흰색)
+                Cv2.PutText(frame, label,
+                    new OpenCvSharp.Point(rect.X + 4, rect.Y - 5),
+                    HersheyFonts.HersheySimplex,
+                    fontScale,
                     new Scalar(255, 255, 255), // 흰색 텍스트
-                    1,
-                    true, // 배경 그리기
-                    color); // 배경색은 박스 색상과 동일
+                    textThickness,
+                    LineTypes.AntiAlias);
 
                 // 중심점 표시 (선택사항)
                 var center = new OpenCvSharp.Point(
@@ -245,6 +252,22 @@ namespace SafetyVisionMonitor.Services
             }
         }
 
+        /// <summary>
+        /// 객체별 색상 반환
+        /// </summary>
+        private Scalar GetDetectionColor(string label)
+        {
+            return label switch
+            {
+                "person" => new Scalar(0, 255, 0),      // 초록색
+                "car" => new Scalar(255, 0, 0),         // 파란색
+                "truck" => new Scalar(255, 255, 0),     // 청록색
+                "bicycle" => new Scalar(0, 255, 255),   // 노란색
+                "motorcycle" => new Scalar(255, 0, 255), // 자홍색
+                _ => new Scalar(128, 128, 128)          // 기본 회색
+            };
+        }
+        
         /// <summary>
         /// 빈 프레임으로 초기화
         /// </summary>
@@ -339,9 +362,19 @@ namespace SafetyVisionMonitor.Services
                         var idText = $"#{person.TrackingId}";
                         var textPos = new OpenCvSharp.Point((int)currentPos.X + 10, (int)currentPos.Y - 10);
                         
-                        // 한글 텍스트 렌더링 (트래킹 ID는 숫자지만 일관성을 위해 사용)
-                        _koreanTextRenderer.PutText(frame, idText, textPos, 0.6, 
-                                  new Scalar(255, 255, 255), 2, true, new Scalar(0, 0, 0));
+                        // OpenCV 기본 텍스트 렌더링
+                        double fontScale = 0.6;
+                        int textThickness = 2;
+                        int baseline = 0;
+                        var textSize = Cv2.GetTextSize(idText, HersheyFonts.HersheySimplex, fontScale, textThickness, out baseline);
+                        
+                        // 텍스트 배경
+                        var bgRect = new Rect(textPos.X - 2, textPos.Y - textSize.Height - 2, textSize.Width + 4, textSize.Height + 4);
+                        Cv2.Rectangle(frame, bgRect, new Scalar(0, 0, 0), -1);
+                        
+                        // 텍스트 그리기
+                        Cv2.PutText(frame, idText, textPos, HersheyFonts.HersheySimplex, fontScale, 
+                                  new Scalar(255, 255, 255), 1, LineTypes.AntiAlias);
                     }
                 }
             }
@@ -357,7 +390,7 @@ namespace SafetyVisionMonitor.Services
                 _bitmap = null;
             }
             
-            _koreanTextRenderer?.Dispose();
+            // _koreanTextRenderer?.Dispose(); // 한글 렌더러 제거됨
         }
     }
 

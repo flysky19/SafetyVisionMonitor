@@ -49,7 +49,7 @@
             </DataTemplate>
             
             <DataTemplate DataType="{x:Type vm:AcrylicSetupViewModel}">
-                <views:AcrylicSetupView/>
+                <views:MonitoringZoneSetupView/>
             </DataTemplate>
             
             <DataTemplate DataType="{x:Type vm:ZoneSetupViewModel}">

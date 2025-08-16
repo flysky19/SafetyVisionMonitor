@@ -11,14 +11,14 @@ namespace SafetyVisionMonitor.Views
     /// <summary>
     /// AcrylicSetupView.xaml에 대한 상호 작용 논리
     /// </summary>
-    public partial class AcrylicSetupView : UserControl
+    public partial class MonitoringZoneSetupView : UserControl
     {
         private AcrylicSetupViewModel? _viewModel;
         private bool _isUpdatingBoundary = false; // 무한 루프 방지 플래그
         private int _retryCount = 0; // 재시도 횟수 제한
         private const int MAX_RETRY_COUNT = 5; // 최대 재시도 횟수
 
-        public AcrylicSetupView()
+        public MonitoringZoneSetupView()
         {
             InitializeComponent();
         }

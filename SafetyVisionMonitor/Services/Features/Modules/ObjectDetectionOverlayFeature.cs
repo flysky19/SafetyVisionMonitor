@@ -21,7 +21,7 @@ namespace SafetyVisionMonitor.Services.Features
         private bool _showObjectName = true;
         private double _confidenceThreshold = 0.5;
         private readonly Dictionary<string, Scalar> _classColors = new();
-        private readonly KoreanTextRenderer _koreanTextRenderer = new();
+        // private readonly KoreanTextRenderer _koreanTextRenderer = new(); // 한글 렌더러 제거
 
         public override FeatureConfiguration DefaultConfiguration => new()
         {
@@ -113,10 +113,11 @@ namespace SafetyVisionMonitor.Services.Features
                 var baseColor = GetClassColor(detection.Label);
                 var color = new Scalar(baseColor.Val0 * alpha, baseColor.Val1 * alpha, baseColor.Val2 * alpha);
 
-                // 바운딩 박스 그리기
+                // 바운딩 박스 그리기 (사람은 얇은 선)
                 if (_showBoundingBox)
                 {
-                    var thickness = CurrentConfiguration?.GetProperty("boxThickness", 2) ?? 2;
+                    var defaultThickness = detection.Label == "person" ? 1 : 2;
+                    var thickness = CurrentConfiguration?.GetProperty("boxThickness", defaultThickness) ?? defaultThickness;
                     Cv2.Rectangle(frame, rect, color, thickness);
                 }
 
@@ -170,9 +171,10 @@ namespace SafetyVisionMonitor.Services.Features
             {
                 var textScale = CurrentConfiguration?.GetProperty("textScale", 0.6) ?? 0.6;
                 var textThickness = 1;
+                int baseline = 0;
 
-                // 텍스트 크기 계산 (한글 지원)
-                var textSize = _koreanTextRenderer.GetTextSize(text, textScale);
+                // OpenCV 기본 텍스트 크기 계산
+                var textSize = Cv2.GetTextSize(text, HersheyFonts.HersheySimplex, textScale, textThickness, out baseline);
 
                 // 텍스트 위치 계산
                 var textPos = new Point(boundingBox.X + 4, boundingBox.Y - 4);
@@ -191,8 +193,20 @@ namespace SafetyVisionMonitor.Services.Features
                 // 배경 표시 여부
                 bool showBackground = CurrentConfiguration?.GetProperty("showTextBackground", true) ?? true;
                 
-                // 한글 텍스트 렌더링
-                _koreanTextRenderer.PutText(frame, text, textPos, textScale, textColor, textThickness, showBackground, color);
+                if (showBackground)
+                {
+                    // 텍스트 배경 그리기
+                    var bgRect = new Rect(
+                        textPos.X - 2, 
+                        textPos.Y - textSize.Height - 2,
+                        textSize.Width + 4, 
+                        textSize.Height + 4
+                    );
+                    Cv2.Rectangle(frame, bgRect, color, -1);
+                }
+                
+                // OpenCV 기본 텍스트 렌더링
+                Cv2.PutText(frame, text, textPos, HersheyFonts.HersheySimplex, textScale, textColor, textThickness, LineTypes.AntiAlias);
             }
             catch (Exception ex)
             {
@@ -263,7 +277,7 @@ namespace SafetyVisionMonitor.Services.Features
 
         public override void Dispose()
         {
-            _koreanTextRenderer?.Dispose();
+            // _koreanTextRenderer?.Dispose(); // 한글 렌더러 제거됨
             base.Dispose();
         }
     }

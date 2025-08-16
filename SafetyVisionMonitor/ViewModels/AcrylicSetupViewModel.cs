@@ -30,10 +30,32 @@ namespace SafetyVisionMonitor.ViewModels
         private ObservableCollection<string> trackingModes;
         
         [ObservableProperty]
+        private ObservableCollection<string> trackingModeDisplayNames;
+        
+        [ObservableProperty]
         private CameraAcrylicInfo? selectedCamera;
         
         [ObservableProperty]
         private string globalTrackingMode = "InteriorOnly";
+        
+        private string _globalTrackingModeDisplayName = "내부만 안전 모니터링";
+        public string GlobalTrackingModeDisplayName
+        {
+            get => _globalTrackingModeDisplayName;
+            set
+            {
+                _globalTrackingModeDisplayName = value;
+                GlobalTrackingMode = value switch
+                {
+                    "내부만 안전 모니터링" => "InteriorOnly",
+                    "외부만 안전 모니터링" => "ExteriorOnly", 
+                    "내부/외부 모두 모니터링" => "Both",
+                    "내부 진입 시 알림" => "InteriorAlert",
+                    _ => "InteriorOnly"
+                };
+                OnPropertyChanged();
+            }
+        }
         
         [ObservableProperty]
         private BitmapImage? previewImage;
@@ -54,7 +76,7 @@ namespace SafetyVisionMonitor.ViewModels
         
         public AcrylicSetupViewModel()
         {
-            Title = "아크릴 경계 설정";
+            Title = "안전 모니터링 구역 설정";
             _cameraService = App.CameraService;
             
             Cameras = new ObservableCollection<CameraAcrylicInfo>();
@@ -64,6 +86,14 @@ namespace SafetyVisionMonitor.ViewModels
                 "ExteriorOnly",
                 "Both",
                 "InteriorAlert"
+            };
+            
+            TrackingModeDisplayNames = new ObservableCollection<string>
+            {
+                "내부만 안전 모니터링",
+                "외부만 안전 모니터링", 
+                "내부/외부 모두 모니터링",
+                "내부 진입 시 알림"
             };
         }
         
@@ -646,6 +676,29 @@ namespace SafetyVisionMonitor.ViewModels
         
         [ObservableProperty]
         private string trackingMode = "InteriorOnly";
+        
+        public string TrackingModeDisplayName
+        {
+            get => TrackingMode switch
+            {
+                "InteriorOnly" => "내부만 안전 모니터링",
+                "ExteriorOnly" => "외부만 안전 모니터링",
+                "Both" => "내부/외부 모두 모니터링",
+                "InteriorAlert" => "내부 진입 시 알림",
+                _ => "내부만 안전 모니터링"
+            };
+            set
+            {
+                TrackingMode = value switch
+                {
+                    "내부만 안전 모니터링" => "InteriorOnly",
+                    "외부만 안전 모니터링" => "ExteriorOnly",
+                    "내부/외부 모두 모니터링" => "Both",
+                    "내부 진입 시 알림" => "InteriorAlert",
+                    _ => "InteriorOnly"
+                };
+            }
+        }
         
         [ObservableProperty]
         private List<Point>? boundaryPoints;

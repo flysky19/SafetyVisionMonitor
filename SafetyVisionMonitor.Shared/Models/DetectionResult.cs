@@ -100,16 +100,7 @@ namespace SafetyVisionMonitor.Shared.Models
             // Label이 있으면 Label 사용, 없으면 ClassName에서 추출
             if (!string.IsNullOrEmpty(Label))
             {
-                return Label switch
-                {
-                    "person" => "사람",
-                    "car" => "자동차",
-                    "truck" => "트럭",
-                    "bicycle" => "자전거",
-                    "motorcycle" => "오토바이",
-                    "bus" => "버스",
-                    _ => Label.Substring(0, Math.Min(Label.Length, 10)) // 최대 10글자
-                };
+                return Label.Substring(0, Math.Min(Label.Length, 10)); // 최대 10글자
             }
             
             // ClassName에서 LabelModel 형태 파싱
@@ -121,23 +112,14 @@ namespace SafetyVisionMonitor.Shared.Models
                 if (nameStart > 5 && nameEnd > nameStart)
                 {
                     var name = ClassName.Substring(nameStart, nameEnd - nameStart).Trim();
-                    return name switch
-                    {
-                        "person" => "사람",
-                        "car" => "자동차",
-                        "truck" => "트럭",
-                        "bicycle" => "자전거",
-                        "motorcycle" => "오토바이",
-                        "bus" => "버스",
-                        _ => name.Substring(0, Math.Min(name.Length, 10))
-                    };
+                    return name.Substring(0, Math.Min(name.Length, 10));
                 }
             }
             
             // 기본값
             return !string.IsNullOrEmpty(ClassName) 
                 ? ClassName.Substring(0, Math.Min(ClassName.Length, 10)) 
-                : "객체";
+                : "Object";
         }
 
         public override string ToString()
