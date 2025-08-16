@@ -123,12 +123,15 @@ namespace SafetyVisionMonitor.Services
             try
             {
                 using var context = new AppDbContext();
-                var zones = context.Zone3DConfigs
-                    .Where(z => z.IsEnabled)
-                    .ToList();
+                // 모든 구역을 로드 (IsEnabled 여부와 관계없이)
+                // UI에서 표시 여부를 제어할 수 있도록 함
+                var zones = context.Zone3DConfigs.ToList();
+                
+                System.Diagnostics.Debug.WriteLine($"ApplicationData: Loading {zones.Count} zones from database");
                 
                 foreach (var zone in zones)
                 {
+                    System.Diagnostics.Debug.WriteLine($"ApplicationData: Zone {zone.Name} - Camera: {zone.CameraId}, Type: {zone.Type}, IsEnabled: {zone.IsEnabled}");
                     App.Current.Dispatcher.Invoke(() => Zones.Add(zone));
                 }
             }

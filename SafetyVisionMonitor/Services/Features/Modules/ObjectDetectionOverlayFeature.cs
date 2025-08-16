@@ -63,7 +63,10 @@ namespace SafetyVisionMonitor.Services.Features
                     .ToArray();
 
                 if (validDetections.Length == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"ObjectDetectionOverlayFeature: No valid detections for {context.CameraId}");
                     return frame;
+                }
 
                 System.Diagnostics.Debug.WriteLine(
                     $"ObjectDetectionOverlayFeature: Rendering {validDetections.Length} detections for camera {context.CameraId}");

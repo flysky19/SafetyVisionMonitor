@@ -12,6 +12,7 @@ using CommunityToolkit.Mvvm.Input;
 using OpenCvSharp;
 using SafetyVisionMonitor.Shared.Models;
 using SafetyVisionMonitor.Shared.ViewModels.Base;
+using SafetyVisionMonitor.Shared.Database;
 using SafetyVisionMonitor.Services;
 using Point = System.Windows.Point;
 
@@ -28,6 +29,9 @@ namespace SafetyVisionMonitor.ViewModels
 
         [ObservableProperty]
         private ObservableCollection<Zone3D> zones = new();
+
+        [ObservableProperty]
+        private ObservableCollection<Zone3D> filteredZones = new();
 
         [ObservableProperty]
         private Zone3D? selectedZone;
@@ -67,6 +71,18 @@ namespace SafetyVisionMonitor.ViewModels
 
         [ObservableProperty]
         private ObservableCollection<ZoneVisualization> zoneVisualizations = new();
+        
+        partial void OnZoneVisualizationsChanged(ObservableCollection<ZoneVisualization> value)
+        {
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: ZoneVisualizations changed - Count: {value?.Count ?? 0}");
+            if (value != null)
+            {
+                foreach (var viz in value)
+                {
+                    System.Diagnostics.Debug.WriteLine($"  Zone: '{viz.Name}' with {viz.RelativePoints.Count} points, IsEnabled: {viz.IsEnabled}");
+                }
+            }
+        }
 
         // 드래그 관련
         [ObservableProperty]
@@ -161,6 +177,8 @@ namespace SafetyVisionMonitor.ViewModels
                     Zones.Add(zone);
                 }
                 
+                // 필터링된 구역과 시각화 업데이트
+                UpdateFilteredZones();
                 UpdateZoneVisualizations();
                 StatusMessage = $"구역 {zones.Count}개를 로드했습니다.";
             }
@@ -386,13 +404,40 @@ namespace SafetyVisionMonitor.ViewModels
 
         #region Zone Management
 
+        private void UpdateFilteredZones()
+        {
+            FilteredZones.Clear();
+            
+            if (SelectedCamera == null)
+            {
+                System.Diagnostics.Debug.WriteLine("ZoneSetupViewModel: No camera selected, clearing filtered zones");
+                return;
+            }
+            
+            var cameraZones = Zones.Where(z => z.CameraId == SelectedCamera.Id).ToList();
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Found {cameraZones.Count} zones for camera '{SelectedCamera.Id}'");
+            
+            foreach (var zone in cameraZones)
+            {
+                FilteredZones.Add(zone);
+                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Added zone '{zone.Name}' to filtered list");
+            }
+        }
+
         private void UpdateZoneVisualizations()
         {
             ZoneVisualizations.Clear();
             
-            if (SelectedCamera == null) return;
+            if (SelectedCamera == null) 
+            {
+                System.Diagnostics.Debug.WriteLine("ZoneSetupViewModel: No camera selected, clearing visualizations");
+                return;
+            }
             
-            foreach (var zone in Zones.Where(z => z.CameraId == SelectedCamera.Id && z.IsEnabled))
+            var cameraZones = Zones.Where(z => z.CameraId == SelectedCamera.Id && z.IsEnabled).ToList();
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Found {cameraZones.Count} enabled zones for camera '{SelectedCamera.Id}'");
+            
+            foreach (var zone in cameraZones)
             {
                 var visualization = new ZoneVisualization
                 {
@@ -404,25 +449,49 @@ namespace SafetyVisionMonitor.ViewModels
                     Height = zone.Height
                 };
                 
-                // 월드 좌표를 상대 좌표로 변환
-                foreach (var worldPoint in zone.FloorPoints)
+                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Processing zone '{zone.Name}', UseRelativeCoordinates: {zone.UseRelativeCoordinates}, FloorPoints count: {zone.FloorPoints.Count}");
+                
+                // 좌표 시스템에 따라 처리
+                if (zone.UseRelativeCoordinates)
                 {
-                    var screenPoint = CoordinateTransformService.WorldToScreen(
-                        worldPoint, 
-                        zone.CalibrationFrameWidth, 
-                        zone.CalibrationFrameHeight, 
-                        zone.CalibrationPixelsPerMeter);
-                    
-                    var relativePoint = new Point(
-                        screenPoint.X / zone.CalibrationFrameWidth,
-                        screenPoint.Y / zone.CalibrationFrameHeight
-                    );
-                    
-                    visualization.AddRelativePoint(relativePoint);
+                    // 상대 좌표를 그대로 사용 (이미 0.0~1.0 범위)
+                    foreach (var relativePoint in zone.FloorPoints)
+                    {
+                        // 범위 클램핑
+                        var clampedX = Math.Max(0.0, Math.Min(1.0, relativePoint.X));
+                        var clampedY = Math.Max(0.0, Math.Min(1.0, relativePoint.Y));
+                        
+                        var point = new Point(clampedX, clampedY);
+                        visualization.AddRelativePoint(point);
+                        System.Diagnostics.Debug.WriteLine($"  Relative point: ({relativePoint.X:F3}, {relativePoint.Y:F3}) -> Display: ({clampedX:F3}, {clampedY:F3})");
+                    }
+                }
+                else
+                {
+                    // 월드 좌표로 저장된 기존 구역 - 상대 좌표로 변환
+                    foreach (var worldPoint in zone.FloorPoints)
+                    {
+                        var screenPoint = CoordinateTransformService.WorldToScreen(
+                            worldPoint, 
+                            zone.CalibrationFrameWidth, 
+                            zone.CalibrationFrameHeight, 
+                            zone.CalibrationPixelsPerMeter);
+                        
+                        var relativePoint = new Point(
+                            screenPoint.X / zone.CalibrationFrameWidth,
+                            screenPoint.Y / zone.CalibrationFrameHeight
+                        );
+                        
+                        visualization.AddRelativePoint(relativePoint);
+                        System.Diagnostics.Debug.WriteLine($"  World point: ({worldPoint.X:F2}, {worldPoint.Y:F2}) -> Relative: ({relativePoint.X:F3}, {relativePoint.Y:F3})");
+                    }
                 }
                 
                 ZoneVisualizations.Add(visualization);
+                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Added visualization for zone '{zone.Name}' with {visualization.RelativePoints.Count} points");
             }
+            
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Total visualizations created: {ZoneVisualizations.Count}");
         }
 
         #endregion
@@ -515,12 +584,17 @@ namespace SafetyVisionMonitor.ViewModels
             newZone.Type = NewZoneType;
             newZone.CameraId = SelectedCamera!.Id;
             newZone.DisplayColor = NewZoneType == ZoneType.Warning ? Colors.Orange : Colors.Red;
+            
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Creating zone '{newZone.Name}' for camera '{newZone.CameraId}' (Selected: '{SelectedCamera?.Name}')");
             newZone.Opacity = 0.3;
             newZone.Height = NewZoneHeight;
             newZone.CreatedDate = DateTime.Now;
             newZone.CalibrationPixelsPerMeter = PixelsPerMeter;
-            newZone.CalibrationFrameWidth = FrameWidth;
-            newZone.CalibrationFrameHeight = FrameHeight;
+            // 현재 프레임 크기 사용 (상대 좌표 기준)
+            newZone.CalibrationFrameWidth = (int)FrameWidth;
+            newZone.CalibrationFrameHeight = (int)FrameHeight;
+            
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Using camera resolution: {SelectedCamera.Width}x{SelectedCamera.Height} (Display: {FrameWidth}x{FrameHeight})");
             
             // 마지막에 IsEnabled 설정 (자동 저장 방지를 위해)
             newZone.IsEnabled = true;
@@ -528,12 +602,25 @@ namespace SafetyVisionMonitor.ViewModels
             // 로딩 완료
             newZone.IsLoading = false;
             
-            // 2D 점들을 실제 3D 바닥 좌표로 변환
+            // 2D 점들을 상대 좌표(0.0~1.0)로 변환 (간단한 방법)
+            newZone.UseRelativeCoordinates = true;
             foreach (var point in TempDrawingPoints)
             {
-                var worldPoint = CoordinateTransformService.ScreenToWorld(
-                    point, FrameWidth, FrameHeight, PixelsPerMeter);
-                newZone.FloorPoints.Add(worldPoint);
+                // Canvas 좌표를 이미지 좌표로 변환
+                var imagePoint = _coordinateMapper.CanvasToImage(point);
+                
+                // 현재 프레임 크기 기준으로 상대 좌표 계산 (0.0~1.0)
+                // 반올림을 통해 정확도 개선
+                var relativeX = Math.Round(imagePoint.X / FrameWidth, 4);
+                var relativeY = Math.Round(imagePoint.Y / FrameHeight, 4);
+                
+                // 범위 클램핑 (0.0 ~ 1.0)
+                relativeX = Math.Max(0.0, Math.Min(1.0, relativeX));
+                relativeY = Math.Max(0.0, Math.Min(1.0, relativeY));
+                
+                newZone.FloorPoints.Add(new Point2D(relativeX, relativeY));
+                
+                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Canvas({point.X:F1},{point.Y:F1}) -> Image({imagePoint.X:F1},{imagePoint.Y:F1}) -> Relative({relativeX:F3},{relativeY:F3}) [Frame: {FrameWidth}x{FrameHeight}]");
             }
             
             Zones.Add(newZone);
@@ -543,6 +630,30 @@ namespace SafetyVisionMonitor.ViewModels
             try
             {
                 await App.DatabaseService.SaveZone3DConfigsAsync(new List<Zone3D> { newZone });
+                
+                // App.AppData.Zones에도 추가 (ZoneOverlayFeature가 참조함)
+                var zoneConfig = new Zone3DConfig
+                {
+                    ZoneId = newZone.Id,
+                    Name = newZone.Name,
+                    CameraId = newZone.CameraId,
+                    Type = newZone.Type.ToString(),
+                    VerticesJson = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        Height = newZone.Height,
+                        FloorPoints = newZone.FloorPoints
+                    }),
+                    Color = $"#{newZone.DisplayColor.R:X2}{newZone.DisplayColor.G:X2}{newZone.DisplayColor.B:X2}",
+                    Opacity = newZone.Opacity,
+                    IsEnabled = newZone.IsEnabled,
+                    CreatedTime = newZone.CreatedDate,
+                    CalibrationPixelsPerMeter = newZone.CalibrationPixelsPerMeter,
+                    CalibrationFrameWidth = newZone.CalibrationFrameWidth,
+                    CalibrationFrameHeight = newZone.CalibrationFrameHeight
+                };
+                
+                App.Current.Dispatcher.Invoke(() => App.AppData.Zones.Add(zoneConfig));
+                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Added zone '{zoneConfig.Name}' to AppData for camera '{zoneConfig.CameraId}'");
             }
             catch (Exception ex)
             {
@@ -555,6 +666,7 @@ namespace SafetyVisionMonitor.ViewModels
             TempDrawingPoints.Clear();
             IsDragging = false;
             
+            UpdateFilteredZones();
             UpdateZoneVisualizations();
             StatusMessage = $"'{newZone.Name}' 구역이 추가되었습니다.";
         }
@@ -575,6 +687,14 @@ namespace SafetyVisionMonitor.ViewModels
                     // 로컬 컴렉션에서 제거
                     Zones.Remove(zone);
                     
+                    // App.AppData.Zones에서도 제거 (ZoneOverlayFeature가 참조함)
+                    var appDataZone = App.AppData.Zones.FirstOrDefault(z => z.ZoneId == zone.Id);
+                    if (appDataZone != null)
+                    {
+                        App.Current.Dispatcher.Invoke(() => App.AppData.Zones.Remove(appDataZone));
+                        System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Removed zone '{zone.Name}' from AppData");
+                    }
+                    
                     // 선택된 구역 해제
                     if (SelectedZone == zone)
                     {
@@ -583,6 +703,7 @@ namespace SafetyVisionMonitor.ViewModels
                     
                     
                     // UI 시각화 업데이트
+                    UpdateFilteredZones();
                     UpdateZoneVisualizations();
                     
                     // 다른 ViewModel들에도 알림
@@ -612,6 +733,7 @@ namespace SafetyVisionMonitor.ViewModels
                 Zones.Clear();
                 SelectedZone = null;
                 TempDrawingPoints.Clear();
+                UpdateFilteredZones();
                 UpdateZoneVisualizations();
                 StatusMessage = "모든 구역이 삭제되었습니다.";
             }
@@ -656,8 +778,18 @@ namespace SafetyVisionMonitor.ViewModels
                     StatusMessage = $"{value.Name} 선택됨. 캘리브레이션이 필요합니다.";
                 }
                 
+                // 선택된 카메라의 구역만 필터링해서 표시
+                UpdateFilteredZones();
                 UpdateZoneVisualizations();
                 SubscribeToCameraFrame(value);
+                
+                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Camera changed to '{value.Name}' ({value.Id})");
+            }
+            else
+            {
+                // 카메라가 선택되지 않은 경우 필터링된 구역 목록 클리어
+                FilteredZones.Clear();
+                System.Diagnostics.Debug.WriteLine("ZoneSetupViewModel: No camera selected, cleared filtered zones");
             }
         }
 

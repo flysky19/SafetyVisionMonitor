@@ -166,7 +166,17 @@ namespace SafetyVisionMonitor.Controls
         
         private void OnZonesCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
         {
-            System.Diagnostics.Debug.WriteLine($"Zones collection changed: {e.Action}");
+            var collection = sender as ObservableCollection<ZoneVisualization>;
+            System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: Zones collection changed: {e.Action}, Total count: {collection?.Count ?? 0}");
+            
+            if (e.NewItems != null)
+            {
+                foreach (ZoneVisualization zone in e.NewItems)
+                {
+                    System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: New zone added: '{zone.Name}' with {zone.RelativePoints.Count} points");
+                }
+            }
+            
             UpdateAllZones();
         }
 
@@ -231,6 +241,8 @@ namespace SafetyVisionMonitor.Controls
 
         private void UpdateAllZones()
         {
+            System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: UpdateAllZones called");
+            
             // 기존 구역 폴리곤 제거
             foreach (var polygon in _zonePolygons.Values)
             {
@@ -243,18 +255,32 @@ namespace SafetyVisionMonitor.Controls
             _zonePolygons.Clear();
             _zoneLabels.Clear();
 
-            if (Zones == null || _coordinateMapper == null) return;
+            if (Zones == null || _coordinateMapper == null) 
+            {
+                System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: Zones is null: {Zones == null}, CoordinateMapper is null: {_coordinateMapper == null}");
+                return;
+            }
+
+            var enabledZones = Zones.Where(z => z.IsEnabled).ToList();
+            System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: Total zones: {Zones.Count}, Enabled zones: {enabledZones.Count}");
 
             // 새로운 구역 폴리곤 생성
-            foreach (var zone in Zones.Where(z => z.IsEnabled))
+            foreach (var zone in enabledZones)
             {
+                System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: Creating polygon for zone '{zone.Name}' with {zone.RelativePoints.Count} points");
                 CreateZonePolygon(zone);
             }
         }
 
         private void CreateZonePolygon(ZoneVisualization zone)
         {
-            if (zone.RelativePoints.Count < 3 || _coordinateMapper == null) return;
+            if (zone.RelativePoints.Count < 3 || _coordinateMapper == null) 
+            {
+                System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: Cannot create polygon for '{zone.Name}' - Points: {zone.RelativePoints.Count}, CoordinateMapper: {_coordinateMapper != null}");
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: Creating polygon for '{zone.Name}' with {zone.RelativePoints.Count} points");
 
             // 폴리곤 생성
             var polygon = new Polygon
@@ -270,10 +296,13 @@ namespace SafetyVisionMonitor.Controls
             {
                 var canvasPoint = _coordinateMapper.RelativeToCanvas(relativePoint);
                 polygon.Points.Add(canvasPoint);
+                System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: Relative({relativePoint.X:F3}, {relativePoint.Y:F3}) -> Canvas({canvasPoint.X:F1}, {canvasPoint.Y:F1})");
             }
 
             _zonePolygons[zone.ZoneId] = polygon;
             Children.Add(polygon);
+            
+            System.Diagnostics.Debug.WriteLine($"ZoneOverlayCanvas: Successfully created and added polygon for '{zone.Name}' to canvas");
 
             // 라벨 생성
             if (zone.RelativePoints.Count > 0)

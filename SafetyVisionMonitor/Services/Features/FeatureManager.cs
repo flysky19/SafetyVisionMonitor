@@ -203,6 +203,20 @@ namespace SafetyVisionMonitor.Services.Features
                             ["showTrackingPath"] = true
                         }
                     },
+                    "zone_overlay" => new FeatureConfiguration
+                    {
+                        IsEnabled = true, // 구역 오버레이는 기본적으로 활성화
+                        Properties = new Dictionary<string, object>
+                        {
+                            ["showWarningZones"] = true,
+                            ["showDangerZones"] = true,
+                            ["showZoneLabels"] = true,
+                            ["zoneOpacity"] = 0.3,
+                            ["warningZoneColor"] = "#FFFF00", // 노란색
+                            ["dangerZoneColor"] = "#FF0000",  // 빨간색
+                            ["zoneBorderThickness"] = 2
+                        }
+                    },
                     _ => null
                 };
             }

@@ -64,6 +64,10 @@ namespace SafetyVisionMonitor.Shared.Models
         [ObservableProperty]
         private double height = 2.0; // 미터 단위
         
+        // 좌표 시스템 타입 (상대 좌표 vs 월드 좌표)
+        [ObservableProperty]
+        private bool useRelativeCoordinates = true; // 새 Zone은 상대 좌표 사용
+        
         // 캘리브레이션 정보 (좌표 변환에 필요)
         [ObservableProperty]
         private double calibrationPixelsPerMeter = 100.0;

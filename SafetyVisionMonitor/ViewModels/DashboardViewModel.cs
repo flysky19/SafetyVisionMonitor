@@ -227,6 +227,11 @@ namespace SafetyVisionMonitor.ViewModels
             
             // 속성 변경 이벤트 구독
             PropertyChanged += OnPropertyChanged;
+            
+            System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Constructor - Initial values: ShowWarningZones={ShowWarningZones}, ShowDangerZones={ShowDangerZones}");
+            
+            // 초기 ZoneOverlayFeature 설정 적용
+            UpdateZoneOverlayFeatureSettings();
         }
         
         public override void Cleanup()
@@ -373,29 +378,6 @@ namespace SafetyVisionMonitor.ViewModels
         //     _updateTimer?.Stop();
         // }
         
-        [RelayCommand]
-        private async Task TestCameraDisplay()
-        {
-            // 테스트 이미지 생성
-            await Task.Run(() =>
-            {
-                using (var testMat = new Mat(480, 640, MatType.CV_8UC3, new Scalar(0, 255, 0)))
-                {
-                    // Cv2.PutText(testMat, "TEST IMAGE", new Point(200, 240), 
-                    //     HersheyFonts.HersheySimplex, 2.0, new Scalar(255, 255, 255), 3);
-            
-                    App.Current.Dispatcher.Invoke(() =>
-                    {
-                        var firstCamera = Cameras.FirstOrDefault();
-                        if (firstCamera != null)
-                        {
-                            firstCamera.CurrentFrame = testMat.ToBitmapSource();
-                            System.Diagnostics.Debug.WriteLine("Test image set");
-                        }
-                    });
-                }
-            });
-        }
         
         // 성능 최적화를 위한 프레임 스키핑 (더 부드러운 30fps)
         private readonly Dictionary<string, DateTime> _lastFrameUpdate = new();
@@ -470,112 +452,7 @@ namespace SafetyVisionMonitor.ViewModels
             }
         }
         
-        [RelayCommand]
-        private async Task TestCameraDirectly()
-        {
-            await Task.Run(() =>
-            {
-                try
-                {
-                    // 기본 Windows 카메라 앱이 실행 중인지 확인
-                    var cameraProcesses = System.Diagnostics.Process.GetProcessesByName("WindowsCamera");
-                    if (cameraProcesses.Length > 0)
-                    {
-                        System.Diagnostics.Debug.WriteLine("Windows Camera app is running. Please close it.");
-                        return;
-                    }
-                    
-                    // 직접 카메라 열기 테스트
-                    using (var cap = new VideoCapture(0, VideoCaptureAPIs.DSHOW))
-                    {
-                        if (!cap.IsOpened())
-                        {
-                            System.Diagnostics.Debug.WriteLine("Cannot open camera 0");
-                            return;
-                        }
-                        
-                        // 기본 해상도로 시도
-                        cap.Set(VideoCaptureProperties.FrameWidth, 640);
-                        cap.Set(VideoCaptureProperties.FrameHeight, 480);
-                        
-                        using (var frame = new Mat())
-                        {
-                            for (int i = 0; i < 5; i++)
-                            {
-                                cap.Read(frame);
-                                Thread.Sleep(200);
-                                
-                                if (!frame.Empty())
-                                {
-                                    var mean = Cv2.Mean(frame);
-                                    System.Diagnostics.Debug.WriteLine(
-                                        $"Frame {i}: Mean values B={mean.Val0:F1}, " +
-                                        $"G={mean.Val1:F1}, R={mean.Val2:F1}");
-                                    
-                                    if (mean.Val0 > 0 || mean.Val1 > 0 || mean.Val2 > 0)
-                                    {
-                                        App.Current.Dispatcher.Invoke(() =>
-                                        {
-                                            var firstCamera = Cameras.FirstOrDefault();
-                                            if (firstCamera != null)
-                                            {
-                                                firstCamera.CurrentFrame = frame.ToBitmapSource();
-                                                System.Diagnostics.Debug.WriteLine("Test frame displayed");
-                                            }
-                                        });
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Direct test error: {ex.Message}");
-                }
-            });
-        }
 
-        [RelayCommand]
-        private async Task TestDirectCameraCapture()
-        {
-            await Task.Run(() =>
-            {
-                try
-                {
-                    // USB 카메라 직접 테스트
-                    using (var capture = new VideoCapture(0)) // 0번 USB 카메라
-                    {
-                        if (!capture.IsOpened())
-                        {
-                            System.Diagnostics.Debug.WriteLine("Cannot open camera");
-                            return;
-                        }
-                
-                        using (var frame = new Mat())
-                        {
-                            if (capture.Read(frame) && !frame.Empty())
-                            {
-                                App.Current.Dispatcher.Invoke(() =>
-                                {
-                                    var firstCamera = Cameras.FirstOrDefault();
-                                    if (firstCamera != null)
-                                    {
-                                        firstCamera.CurrentFrame = frame.ToBitmapSource();
-                                        System.Diagnostics.Debug.WriteLine("Direct capture successful");
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"Direct capture error: {ex.Message}");
-                }
-            });
-        }
         
         private void OnConnectionChanged(object? sender, CameraConnectionEventArgs e)
         {
@@ -889,14 +766,83 @@ namespace SafetyVisionMonitor.ViewModels
         // Zone의 IsEnabled 상태 변경 시 호출되는 메서드
         partial void OnShowWarningZonesChanged(bool value)
         {
-            // 경고 구역 표시/숨김 처리는 XAML Visibility 바인딩으로 자동 처리됨
-            System.Diagnostics.Debug.WriteLine($"Warning zones visibility changed: {value}");
+            System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Warning zones visibility changed: {value}");
+            UpdateZoneOverlayFeatureSettings();
         }
         
         partial void OnShowDangerZonesChanged(bool value)
         {
-            // 위험 구역 표시/숨김 처리는 XAML Visibility 바인딩으로 자동 처리됨
-            System.Diagnostics.Debug.WriteLine($"Danger zones visibility changed: {value}");
+            System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Danger zones visibility changed: {value}");
+            UpdateZoneOverlayFeatureSettings();
+        }
+        
+        /// <summary>
+        /// ZoneOverlayFeature의 설정을 업데이트하여 구역 표시/숨김을 실시간 적용
+        /// </summary>
+        private void UpdateZoneOverlayFeatureSettings()
+        {
+            try
+            {
+                var featureManager = App.FeatureManager;
+                System.Diagnostics.Debug.WriteLine($"DashboardViewModel: UpdateZoneOverlayFeatureSettings called - FeatureManager null: {featureManager == null}");
+                
+                if (featureManager != null)
+                {
+                    var zoneConfig = featureManager.GetFeatureConfiguration("zone_overlay");
+                    System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Zone config null: {zoneConfig == null}");
+                    
+                    if (zoneConfig != null)
+                    {
+                        // 기존 설정 복사하고 표시 옵션만 업데이트
+                        var newConfig = new Services.Features.FeatureConfiguration
+                        {
+                            IsEnabled = true, // 구역 오버레이 기능 자체는 항상 활성화
+                            Properties = new Dictionary<string, object>(zoneConfig.Properties)
+                        };
+                        
+                        // DashboardViewModel의 설정을 ZoneOverlayFeature에 반영
+                        newConfig.Properties["showWarningZones"] = ShowWarningZones;
+                        newConfig.Properties["showDangerZones"] = ShowDangerZones;
+                        
+                        System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Updating ZoneOverlayFeature - Warning: {ShowWarningZones}, Danger: {ShowDangerZones}");
+                        
+                        featureManager.UpdateFeatureConfiguration("zone_overlay", newConfig);
+                        
+                        System.Diagnostics.Debug.WriteLine($"DashboardViewModel: ZoneOverlayFeature update completed");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Zone config is null - creating new config");
+                        
+                        // 설정이 없으면 새로 생성
+                        var newConfig = new Services.Features.FeatureConfiguration
+                        {
+                            IsEnabled = true,
+                            Properties = new Dictionary<string, object>
+                            {
+                                ["showWarningZones"] = ShowWarningZones,
+                                ["showDangerZones"] = ShowDangerZones,
+                                ["showZoneLabels"] = true,
+                                ["zoneOpacity"] = 0.3,
+                                ["warningZoneColor"] = "#FFFF00",
+                                ["dangerZoneColor"] = "#FF0000",
+                                ["zoneBorderThickness"] = 2
+                            }
+                        };
+                        
+                        featureManager.UpdateFeatureConfiguration("zone_overlay", newConfig);
+                        System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Created new ZoneOverlayFeature config");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"DashboardViewModel: FeatureManager is null!");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"DashboardViewModel: Error updating ZoneOverlayFeature settings: {ex.Message}");
+            }
         }
         
         // 디버그 옵션 변경 이벤트 처리

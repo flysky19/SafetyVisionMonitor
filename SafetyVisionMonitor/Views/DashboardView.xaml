@@ -32,42 +32,27 @@
                     </StackPanel>
                     
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <!-- <Button Content="테스트 이미지"  -->
-                        <!--         Command="{Binding TestCameraDisplayCommand}" -->
-                        <!--         Margin="0,0,5,0"/> -->
-                        <!-- <Button Content="직접 캡처"  -->
-                        <!--         Command="{Binding TestDirectCameraCaptureCommand}" -->
-                        <!--         Margin="0,0,15,0"/> -->
-                        <!-- -->
-                        <!-- <Button Content="직접 캡처(2)"  -->
-                        <!--         Command="{Binding TestCameraDirectly}" -->
-                        <!--         Margin="0,0,5,0"/> -->
-                        
-                        <!-- <Button Content="구역 새로고침"  -->
-                        <!--         Command="{Binding RefreshZoneOverlaysCommand}" -->
-                        <!--         Margin="0,0,15,0"/> -->
-                        
                         <CheckBox Content="경고구역 표시" 
                                   IsChecked="{Binding ShowWarningZones}"
-                                  Foreground="Orange" Margin="0,0,15,0"/>
+                                  Foreground="Orange"/>
                         <CheckBox Content="위험구역 표시" 
                                 IsChecked="{Binding ShowDangerZones}"
-                                Foreground="Red" Margin="0,0,15,0"/>
+                                Foreground="Red"/>
                         
-                        <CheckBox Content="아크릴 경계선 표시" 
+                        <CheckBox Content="모니터링 구역 경계선 표시" 
                                   IsChecked="{Binding ShowROIRegions}"
-                                  Foreground="LightBlue" Margin="0,0,15,0"
+                                  Foreground="LightBlue"
                                   ToolTip="설정된 아크릴 경계선을 화면에 표시합니다"/>
                         
                         <!-- 디버그 옵션 -->
                         <Separator Background="#444" Height="1" Margin="15,5"/>
                         <CheckBox Content="모든 객체 표시 (사람 외)" 
                                   IsChecked="{Binding ShowAllDetections}"
-                                  Foreground="Yellow" Margin="0,5,15,0"
+                                  Foreground="Yellow"
                                   ToolTip="사람 외의 모든 객체(자동차, 자전거 등)도 표시합니다"/>
                         <CheckBox Content="상세 정보 표시" 
                                   IsChecked="{Binding ShowDetailedInfo}"
-                                  Foreground="Cyan" Margin="0,0,15,0"
+                                  Foreground="Cyan"
                                   ToolTip="검출 박스에 신뢰도, 클래스 ID 등 상세 정보를 표시합니다"/>
                         <CheckBox Content="검출 통계 표시" 
                                   IsChecked="{Binding ShowDetectionStats}"

@@ -556,7 +556,7 @@ namespace SafetyVisionMonitor.Shared.Services
                 var existing = await context.Zone3DConfigs
                     .FirstOrDefaultAsync(z => z.ZoneId == zone.Id);
                 
-                System.Diagnostics.Debug.WriteLine($"DatabaseService: Saving zone {zone.Name}, Zone IsEnabled={zone.IsEnabled}");
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Saving zone '{zone.Name}' for camera '{zone.CameraId}', IsEnabled={zone.IsEnabled}");
                 
                 var config = new Zone3DConfig
                 {
@@ -614,6 +614,11 @@ namespace SafetyVisionMonitor.Shared.Services
             if (!string.IsNullOrEmpty(cameraId))
             {
                 query = query.Where(z => z.CameraId == cameraId);
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Loading zones for specific camera '{cameraId}'");
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Loading all zones");
             }
             
             var configs = await query.ToListAsync();
@@ -628,12 +633,14 @@ namespace SafetyVisionMonitor.Shared.Services
                 // 로딩 플래그 설정 (자동 저장 방지)
                 zone.IsLoading = true;
                 
-                // 먼저 이름 설정 (로깅을 위해)
+                // 먼저 이름과 카메라 ID 설정 (로깅을 위해)
                 zone.Name = config.Name;
+                zone.CameraId = config.CameraId;
+                
+                System.Diagnostics.Debug.WriteLine($"DatabaseService: Loading zone '{zone.Name}' for camera '{zone.CameraId}'");
                 
                 // 그 다음 다른 속성들 설정
                 zone.Id = config.ZoneId;
-                zone.CameraId = config.CameraId;
                 zone.Type = Enum.Parse<ZoneType>(config.Type);
                 zone.DisplayColor = HexToColor(config.Color);
                 zone.Opacity = config.Opacity;

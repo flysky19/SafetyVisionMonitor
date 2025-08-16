@@ -246,11 +246,16 @@ namespace SafetyVisionMonitor.Services
                     // 간소화된 렌더링 - 성능 최적화
                     try
                     {
-                        // 검출 결과나 추적 정보가 있을 때만 렌더링
-                        if (detections.Count > 0 || trackedPersons?.Count > 0)
+                        // 구역 오버레이는 항상 표시되어야 하므로 조건 제거
+                        // 검출 결과나 추적 정보가 없어도 구역은 표시됨
+                        var processedFrame = RenderFrameWithTracking(originalFrame.CameraId, uiFrame, detections, trackedPersons, trackingConfig);
+                        
+                        // 처리된 프레임이 원본과 다른 경우 교체
+                        if (processedFrame != uiFrame)
                         {
-                            // 기존 방식 사용 (더 안정적이고 빠름)
-                            RenderFrameWithTracking(uiFrame, detections, trackedPersons, trackingConfig);
+                            uiFrame.Dispose(); // 원본 프레임 해제
+                            uiFrame = processedFrame; // 처리된 프레임으로 교체
+                            System.Diagnostics.Debug.WriteLine($"CameraService: Frame replaced with processed frame for {originalFrame.CameraId}");
                         }
                     }
                     catch (Exception renderEx)
@@ -261,13 +266,25 @@ namespace SafetyVisionMonitor.Services
                     
                     try
                     {
-                        ((EventHandler<CameraFrameEventArgs>)handler).Invoke(this, 
-                            new CameraFrameEventArgs(originalFrame.CameraId, uiFrame));
+                        // UI 스레드에서 안전하게 이벤트 호출
+                        var frameArgs = new CameraFrameEventArgs(originalFrame.CameraId, uiFrame);
+                        
+                        // 동기화 컨텍스트가 없거나 취소된 경우 처리
+                        if (handler != null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"CameraService: Sending UI frame for {originalFrame.CameraId} - Size: {uiFrame.Width}x{uiFrame.Height}");
+                            ((EventHandler<CameraFrameEventArgs>)handler).Invoke(this, frameArgs);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"CameraService: UI frame delivery canceled for {originalFrame.CameraId}");
+                        // 취소된 경우 프레임 유지 (폐기하지 않음)
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"UI frame handler error: {ex.Message}");
-                        uiFrame.Dispose();
+                        System.Diagnostics.Debug.WriteLine($"CameraService: UI frame handler error for {originalFrame.CameraId}: {ex.Message}");
+                        // 오류 시에도 프레임 폐기하지 않음 (UI에서 처리하도록)
                     }
                 }
             }
@@ -311,22 +328,60 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 축소된 프레임에 추적 정보와 검출 결과를 렌더링
+        /// 축소된 프레임에 추적 정보, 검출 결과, 그리고 구역 오버레이를 렌더링
         /// </summary>
-        private void RenderFrameWithTracking(Mat frame, List<DetectionResult> detections, 
+        private Mat RenderFrameWithTracking(string cameraId, Mat frame, List<DetectionResult> detections, 
             List<TrackedPerson>? trackedPersons, TrackingConfiguration? trackingConfig)
         {
             // 축소된 프레임에 맞게 좌표 조정 (원본의 1/2 크기)
             var scale = 0.5f;
             
-            // 추적 경로 그리기 (검출 박스보다 먼저)
-            if (trackedPersons != null && trackingConfig?.ShowTrackingPath == true)
+            bool overlayPipelineUsed = false;
+            
+            try
             {
-                DrawScaledTrackingPaths(frame, trackedPersons, trackingConfig, scale);
+                // 1. 먼저 OverlayRenderingPipeline을 통해 구역 오버레이 등 기능들 적용
+                if (App.OverlayPipeline != null)
+                {
+                    var context = new Services.Features.FrameProcessingContext
+                    {
+                        CameraId = cameraId,
+                        Scale = scale,
+                        ProcessingStartTime = DateTime.Now,
+                        Detections = detections.ToArray(),
+                        TrackedPersons = trackedPersons
+                    };
+                    
+                    // OverlayRenderingPipeline을 통해 모든 활성 기능들(구역, 개인정보 보호 등) 적용
+                    frame = App.OverlayPipeline.ProcessFrame(frame, context);
+                    overlayPipelineUsed = true;
+                    
+                    System.Diagnostics.Debug.WriteLine($"CameraService: OverlayPipeline processed frame for {cameraId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: OverlayPipeline error for {cameraId}: {ex.Message}");
+                // 오버레이 오류 시 fallback으로 기존 렌더링 사용
+                overlayPipelineUsed = false;
             }
             
-            // 검출 결과 그리기
-            DrawScaledDetectionBoxes(frame, detections, trackingConfig, scale);
+            // OverlayPipeline이 사용되지 않은 경우에만 기존 렌더링 수행
+            if (!overlayPipelineUsed)
+            {
+                System.Diagnostics.Debug.WriteLine($"CameraService: Using fallback rendering for {cameraId}");
+                
+                // 2. 추적 경로 그리기 (검출 박스보다 먼저)
+                if (trackedPersons != null && trackingConfig?.ShowTrackingPath == true)
+                {
+                    DrawScaledTrackingPaths(frame, trackedPersons, trackingConfig, scale);
+                }
+                
+                // 3. 검출 결과 그리기
+                DrawScaledDetectionBoxes(frame, detections, trackingConfig, scale);
+            }
+            
+            return frame;
         }
         
         /// <summary>
