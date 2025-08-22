@@ -18,16 +18,17 @@ namespace SafetyVisionMonitor.Services
         private readonly SemaphoreSlim _processingLimiter;
         private readonly CancellationTokenSource _cancellationTokenSource;
         private readonly ConcurrentDictionary<string, FrameSkipCounter> _frameSkipCounters;
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _cameraLimiters;
         
         private bool _disposed = false;
         private long _totalFramesQueued = 0;
         private long _totalFramesProcessed = 0;
         private long _totalFramesDropped = 0;
         
-        // 설정 - 성능 최적화
-        private const int MaxConcurrentProcessing = 2; // 동시 처리 제한 증가 (성능 향상)
+        // 설정 - 성능 최적화 (카메라별 병렬 처리)
+        private const int MaxConcurrentProcessing = 4; // 카메라 수만큼 병렬 처리
         private const int ProcessEveryNthFrame = 2; // 프레임 스키핑 줄임 (더 부드러운 영상)
-        private const int MaxQueueSize = 5; // 큐 크기 줄임 (지연 감소)
+        private const int MaxQueueSize = 8; // 큐 크기 증가로 드랍 감소
         
         // 이벤트
         public event EventHandler<ObjectDetectionEventArgs>? ObjectDetected;
@@ -45,6 +46,7 @@ namespace SafetyVisionMonitor.Services
             _cancellationTokenSource = new CancellationTokenSource();
             _processingLimiter = new SemaphoreSlim(MaxConcurrentProcessing, MaxConcurrentProcessing);
             _frameSkipCounters = new ConcurrentDictionary<string, FrameSkipCounter>();
+            _cameraLimiters = new ConcurrentDictionary<string, SemaphoreSlim>();
             
             // 처리 블록 설정 (Producer-Consumer 패턴)
             var options = new ExecutionDataflowBlockOptions
@@ -129,17 +131,23 @@ namespace SafetyVisionMonitor.Services
         }
         
         /// <summary>
-        /// 프레임 처리 태스크 실행
+        /// 프레임 처리 태스크 실행 (카메라별 독립 병렬 처리)
         /// </summary>
         private async Task ProcessFrameTask(FrameTask task)
         {
-            await _processingLimiter.WaitAsync(_cancellationTokenSource.Token);
+            // 카메라별 독립적인 처리 제한 (각 카메라당 1개씩 동시 처리)
+            var cameraLimiter = _cameraLimiters.GetOrAdd(task.CameraId, 
+                _ => new SemaphoreSlim(1, 1));
+            
+            await cameraLimiter.WaitAsync(_cancellationTokenSource.Token);
             
             try
             {
                 var processingStart = DateTime.Now;
                 
-                // AI 추론 실행
+                System.Diagnostics.Debug.WriteLine($"AIProcessingPipeline: Processing frame for camera {task.CameraId} - Thread: {Thread.CurrentThread.ManagedThreadId}");
+                
+                // AI 추론 실행 (각 카메라별로 병렬 실행)
                 var detections = await _aiService.InferFrameAsync(task.CameraId, task.Frame);
                 
                 var processingTime = (DateTime.Now - processingStart).TotalMilliseconds;
@@ -180,7 +188,7 @@ namespace SafetyVisionMonitor.Services
             {
                 // 리소스 해제
                 task.Frame?.Dispose();
-                _processingLimiter.Release();
+                cameraLimiter.Release();
             }
         }
         
@@ -285,6 +293,13 @@ namespace SafetyVisionMonitor.Services
             _aiService.ObjectDetected -= OnObjectDetected;
             _processingLimiter?.Dispose();
             _cancellationTokenSource?.Dispose();
+            
+            // 카메라별 제한기들 정리
+            foreach (var limiter in _cameraLimiters.Values)
+            {
+                limiter?.Dispose();
+            }
+            _cameraLimiters.Clear();
             
             _disposed = true;
             System.Diagnostics.Debug.WriteLine("AIProcessingPipeline: Disposed");

@@ -49,7 +49,7 @@ namespace SafetyVisionMonitor.ViewModels
                  ["AIModel"] = new AIModelViewModel(),
                  ["ModelConversion"] = new ModelConversionViewModel(),
                  ["ZoneSetup"] = new ZoneSetupViewModel(),
-                 ["AcrylicSetup"] = new AcrylicSetupViewModel(),
+                 ["AcrylicSetup"] = new MonitoringZoneSetupViewModel(),
                  ["TrackingSetup"] = new TrackingSetupViewModel(),
                  ["SafetySettings"] = new SafetySettingsViewModel(),
             };

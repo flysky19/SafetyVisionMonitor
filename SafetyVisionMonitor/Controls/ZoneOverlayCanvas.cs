@@ -370,7 +370,7 @@ namespace SafetyVisionMonitor.Controls
                     StrokeDashArray = new DoubleCollection { 5, 3 }
                 };
 
-                // 이미지 좌표를 캔버스 좌표로 변환
+                // TempDrawingPoints는 이미 이미지 좌표이므로 캔버스 좌표로 변환
                 foreach (var imagePoint in TempDrawingPoints)
                 {
                     var canvasPoint = _coordinateMapper.ImageToCanvas(imagePoint);

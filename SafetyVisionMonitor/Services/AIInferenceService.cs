@@ -18,11 +18,13 @@ namespace SafetyVisionMonitor.Services
     {
         private YOLOv8Engine? _currentEngine;
         private YOLOv8MultiTaskEngine? _yolov8MultiTaskEngine;
+        private MultiCameraAIService? _multiCameraService;
         private AIModel? _activeModel;
         private readonly ConcurrentQueue<PerformanceMetrics> _performanceHistory = new();
         private readonly Stopwatch _performanceTimer = new();
         private bool _disposed = false;
         private bool _useMultiTaskEngine = false;
+        private bool _useMultiCameraService = true; // 기본적으로 다중 카메라 서비스 사용
         
         // 성능 통계
         private long _totalFramesProcessed = 0;
@@ -55,6 +57,37 @@ namespace SafetyVisionMonitor.Services
         public bool IsSegmentationModelLoaded => _yolov8MultiTaskEngine?.IsSegmentationModelLoaded ?? false;
         public bool IsClassificationModelLoaded => _yolov8MultiTaskEngine?.IsClassificationModelLoaded ?? false;
         public bool IsOBBModelLoaded => _yolov8MultiTaskEngine?.IsOBBModelLoaded ?? false;
+        
+        /// <summary>
+        /// AIInferenceService 생성자
+        /// </summary>
+        public AIInferenceService()
+        {
+            // MultiCameraAIService 초기화
+            if (_useMultiCameraService)
+            {
+                _multiCameraService = new MultiCameraAIService(maxEngines: 4);
+                
+                // MultiCameraAIService 이벤트를 AIInferenceService로 전달
+                _multiCameraService.ObjectDetected += (sender, e) =>
+                {
+                    ObjectDetected?.Invoke(this, e);
+                };
+                
+                _multiCameraService.ModelStatusChanged += (sender, e) =>
+                {
+                    ModelStatusChanged?.Invoke(this, new ModelStatusEventArgs
+                    {
+                        Model = _activeModel,
+                        CameraId = e.CameraId,
+                        Status = e.Status,
+                        Message = e.Message
+                    });
+                };
+                
+                System.Diagnostics.Debug.WriteLine("AIInferenceService: MultiCameraAIService 초기화 완료");
+            }
+        }
         
         /// <summary>
         /// YOLOv8 멀티태스크 엔진 초기화
@@ -299,6 +332,12 @@ namespace SafetyVisionMonitor.Services
         /// </summary>
         public async Task<DetectionResult[]> InferFrameAsync(string cameraId, Mat frame)
         {
+            // 다중 카메라 서비스 사용 시 (카메라별 독립적인 AI 엔진)
+            if (_useMultiCameraService && _multiCameraService != null)
+            {
+                return await _multiCameraService.ProcessFrameAsync(cameraId, frame);
+            }
+            
             // 멀티태스크 엔진 사용 시
             if (_useMultiTaskEngine && _yolov8MultiTaskEngine != null && _activeModel != null)
             {
@@ -636,13 +675,14 @@ namespace SafetyVisionMonitor.Services
         /// <summary>
         /// 모델 상태 변경 알림
         /// </summary>
-        private void NotifyModelStatus(AIModel model, ModelStatus status, string message)
+        private void NotifyModelStatus(AIModel model, ModelStatus status, string message, string cameraId = "")
         {
             model.Status = status;
             
             ModelStatusChanged?.Invoke(this, new ModelStatusEventArgs
             {
                 Model = model,
+                CameraId = cameraId,
                 Status = status,
                 Message = message
             });
@@ -813,6 +853,14 @@ namespace SafetyVisionMonitor.Services
                 _currentEngine.DownloadProgressChanged -= OnModelDownloadProgress;
             }
             
+            // MultiCameraAIService 정리
+            if (_multiCameraService != null)
+            {
+                _multiCameraService.Dispose();
+                _multiCameraService = null;
+                System.Diagnostics.Debug.WriteLine("AIInferenceService: MultiCameraAIService disposed");
+            }
+            
             UnloadModel();
             _disposed = true;
             
@@ -844,7 +892,8 @@ namespace SafetyVisionMonitor.Services
     /// </summary>
     public class ModelStatusEventArgs : EventArgs
     {
-        public AIModel Model { get; set; } = new();
+        public AIModel? Model { get; set; } = new();
+        public string CameraId { get; set; } = string.Empty;
         public ModelStatus Status { get; set; }
         public string Message { get; set; } = string.Empty;
     }

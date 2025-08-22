@@ -178,6 +178,10 @@ namespace SafetyVisionMonitor.ViewModels
         {
             base.OnLoaded();
             
+            // 정적 속성 초기화 (ObjectDetectionOverlayFeature에서 사용)
+            StaticShowAllDetections = ShowAllDetections;
+            StaticShowDetailedInfo = ShowDetailedInfo;
+            
             // App.AppData에서 카메라 정보 로드 (이제 AppData가 초기화됨)
             if (App.AppData?.Cameras != null)
             {

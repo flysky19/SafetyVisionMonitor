@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using OpenCvSharp;
 using SafetyVisionMonitor.Shared.Models;
+using SafetyVisionMonitor.ViewModels;
 
 namespace SafetyVisionMonitor.Services.Features
 {
@@ -62,14 +63,23 @@ namespace SafetyVisionMonitor.Services.Features
                     .Where(d => d.Confidence >= _confidenceThreshold)
                     .ToArray();
 
+                // ShowAllDetections 설정에 따라 필터링
+                if (!DashboardViewModel.StaticShowAllDetections)
+                {
+                    // false인 경우 사람만 표시
+                    validDetections = validDetections
+                        .Where(d => d.Label == "person")
+                        .ToArray();
+                }
+
                 if (validDetections.Length == 0)
                 {
-                    System.Diagnostics.Debug.WriteLine($"ObjectDetectionOverlayFeature: No valid detections for {context.CameraId}");
+                    System.Diagnostics.Debug.WriteLine($"ObjectDetectionOverlayFeature: No valid detections for {context.CameraId} (ShowAllDetections: {DashboardViewModel.StaticShowAllDetections})");
                     return frame;
                 }
 
                 System.Diagnostics.Debug.WriteLine(
-                    $"ObjectDetectionOverlayFeature: Rendering {validDetections.Length} detections for camera {context.CameraId}");
+                    $"ObjectDetectionOverlayFeature: Rendering {validDetections.Length} detections for camera {context.CameraId} (ShowAllDetections: {DashboardViewModel.StaticShowAllDetections})");
 
                 foreach (var detection in validDetections)
                 {
@@ -148,21 +158,25 @@ namespace SafetyVisionMonitor.Services.Features
         {
             var parts = new List<string>();
 
+            // 기본적으로는 객체 이름만 표시
             if (_showObjectName)
             {
                 parts.Add(detection.DisplayName);
             }
 
-            if (_showConfidence)
+            // ShowDetailedInfo가 true인 경우에만 상세 정보 표시
+            if (DashboardViewModel.StaticShowDetailedInfo)
             {
-                parts.Add($"({detection.Confidence:P0})");
-            }
-
-            // 트래킹 ID가 있으면 표시
-            if (detection.TrackingId.HasValue && 
-                CurrentConfiguration?.GetProperty("showTrackingId", true) == true)
-            {
-                parts.Add($"ID:{detection.TrackingId}");
+                if (_showConfidence)
+                {
+                    parts.Add($"({detection.Confidence:P0})");
+                }
+                
+                // 추가 상세 정보 (ID, 크기 등)
+                if (detection.TrackingId.HasValue)
+                {
+                    parts.Add($"ID:{detection.TrackingId.Value}");
+                }
             }
 
             return string.Join(" ", parts);

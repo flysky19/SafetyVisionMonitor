@@ -13,7 +13,7 @@ namespace SafetyVisionMonitor.Views
     /// </summary>
     public partial class MonitoringZoneSetupView : UserControl
     {
-        private AcrylicSetupViewModel? _viewModel;
+        private MonitoringZoneSetupViewModel? _viewModel;
         private bool _isUpdatingBoundary = false; // 무한 루프 방지 플래그
         private int _retryCount = 0; // 재시도 횟수 제한
         private const int MAX_RETRY_COUNT = 5; // 최대 재시도 횟수
@@ -25,7 +25,7 @@ namespace SafetyVisionMonitor.Views
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
-            _viewModel = DataContext as AcrylicSetupViewModel;
+            _viewModel = DataContext as MonitoringZoneSetupViewModel;
             if (_viewModel != null)
             {
                 _viewModel.BoundaryUpdateRequested += OnBoundaryUpdateRequested;

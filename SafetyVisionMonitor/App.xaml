@@ -48,7 +48,7 @@
                 <views:ModelConversionView/>
             </DataTemplate>
             
-            <DataTemplate DataType="{x:Type vm:AcrylicSetupViewModel}">
+            <DataTemplate DataType="{x:Type vm:MonitoringZoneSetupViewModel}">
                 <views:MonitoringZoneSetupView/>
             </DataTemplate>
             

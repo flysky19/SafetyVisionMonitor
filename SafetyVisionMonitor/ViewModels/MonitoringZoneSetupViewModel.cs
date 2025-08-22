@@ -19,7 +19,7 @@ using Point = System.Windows.Point;
 
 namespace SafetyVisionMonitor.ViewModels
 {
-    public partial class AcrylicSetupViewModel : BaseViewModel
+    public partial class MonitoringZoneSetupViewModel : BaseViewModel
     {
         private readonly CameraService _cameraService;
         
@@ -74,7 +74,7 @@ namespace SafetyVisionMonitor.ViewModels
         
         public event EventHandler? BoundaryUpdateRequested;
         
-        public AcrylicSetupViewModel()
+        public MonitoringZoneSetupViewModel()
         {
             Title = "안전 모니터링 구역 설정";
             _cameraService = App.CameraService;

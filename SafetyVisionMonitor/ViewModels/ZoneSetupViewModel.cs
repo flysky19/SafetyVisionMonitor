@@ -264,6 +264,7 @@ namespace SafetyVisionMonitor.ViewModels
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
+                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Frame size changed from {FrameWidth}x{FrameHeight} to {e.Width}x{e.Height}");
                 FrameWidth = e.Width;
                 FrameHeight = e.Height;
                 _coordinateMapper = new CoordinateMapper(e.Width, e.Height);
@@ -585,7 +586,7 @@ namespace SafetyVisionMonitor.ViewModels
             newZone.CameraId = SelectedCamera!.Id;
             newZone.DisplayColor = NewZoneType == ZoneType.Warning ? Colors.Orange : Colors.Red;
             
-            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Creating zone '{newZone.Name}' for camera '{newZone.CameraId}' (Selected: '{SelectedCamera?.Name}')");
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Creating zone '{newZone.Name}' for camera '{newZone.CameraId}' (Selected: '{SelectedCamera?.Name}') ID: '{SelectedCamera?.Id}'");
             newZone.Opacity = 0.3;
             newZone.Height = NewZoneHeight;
             newZone.CreatedDate = DateTime.Now;
@@ -602,25 +603,20 @@ namespace SafetyVisionMonitor.ViewModels
             // 로딩 완료
             newZone.IsLoading = false;
             
-            // 2D 점들을 상대 좌표(0.0~1.0)로 변환 (간단한 방법)
+            // 2D 점들을 상대 좌표(0.0~1.0)로 변환
             newZone.UseRelativeCoordinates = true;
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Converting {TempDrawingPoints.Count} points from image coordinates to relative coordinates");
+            System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: CoordinateMapper info - Image: {FrameWidth}x{FrameHeight}");
+            
             foreach (var point in TempDrawingPoints)
             {
-                // Canvas 좌표를 이미지 좌표로 변환
-                var imagePoint = _coordinateMapper.CanvasToImage(point);
-                
-                // 현재 프레임 크기 기준으로 상대 좌표 계산 (0.0~1.0)
-                // 반올림을 통해 정확도 개선
-                var relativeX = Math.Round(imagePoint.X / FrameWidth, 4);
-                var relativeY = Math.Round(imagePoint.Y / FrameHeight, 4);
-                
-                // 범위 클램핑 (0.0 ~ 1.0)
-                relativeX = Math.Max(0.0, Math.Min(1.0, relativeX));
-                relativeY = Math.Max(0.0, Math.Min(1.0, relativeY));
+                // TempDrawingPoints는 이미지 좌표이므로 이미지 크기로 나누어 상대 좌표 계산
+                var relativeX = Math.Max(0.0, Math.Min(1.0, Math.Round(point.X / FrameWidth, 4)));
+                var relativeY = Math.Max(0.0, Math.Min(1.0, Math.Round(point.Y / FrameHeight, 4)));
                 
                 newZone.FloorPoints.Add(new Point2D(relativeX, relativeY));
                 
-                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Canvas({point.X:F1},{point.Y:F1}) -> Image({imagePoint.X:F1},{imagePoint.Y:F1}) -> Relative({relativeX:F3},{relativeY:F3}) [Frame: {FrameWidth}x{FrameHeight}]");
+                System.Diagnostics.Debug.WriteLine($"ZoneSetupViewModel: Image({point.X:F1},{point.Y:F1}) -> Relative({relativeX:F3},{relativeY:F3}) [Frame: {FrameWidth}x{FrameHeight}]");
             }
             
             Zones.Add(newZone);

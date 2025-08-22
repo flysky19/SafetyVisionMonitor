@@ -69,6 +69,7 @@ namespace SafetyVisionMonitor.Shared.Models
         Ready,
         Loading,
         Running,
-        Error
+        Error,
+        Unloaded
     }
 }
